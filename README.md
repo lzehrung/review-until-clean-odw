@@ -4,7 +4,6 @@ Portable pre-PR review loop for ODW.
 
 - `workflows/review-and-correct.js` finds review issues with ODW and returns structured JSON + markdown.
 - `skills/review-until-clean/SKILL.md` tells any capable agent how to run the loop: review, fix with native tools, test, local commit, verify fixes.
-- `commands/review-until-clean.md` is a legacy Claude Code slash command. ODW/Codex/Cursor do not use it.
 
 ## Key rule
 

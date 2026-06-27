@@ -4,7 +4,6 @@ A final pre-PR review toolkit:
 
 - `workflows/review-and-correct.js` -- ODW/Claude-compatible review engine. It finds issues and returns structured results; it does not edit or commit.
 - `skills/review-until-clean/SKILL.md` -- portable loop policy for Codex/Cursor/Claude-style agents: run review, apply fixes with native tools, test, commit locally, then verify fixes.
-- `commands/review-until-clean.md` -- optional legacy Claude Code slash command. ODW/Codex/Cursor do not use this file.
 
 ## Purpose
 
@@ -87,9 +86,3 @@ ODW/global agent install:
 - `workflows/review-and-correct.js` -> `~/.odw/workflows/review-and-correct.js`
 - `skills/review-until-clean/` -> your shared skills directory, e.g. `~/.agents/skills/review-until-clean/`, then symlink into agent-specific skill dirs.
 
-Optional Claude Code legacy install:
-
-- `commands/review-until-clean.md` -> `~/.claude/commands/review-until-clean.md`
-- `workflows/review-and-correct.js` -> `~/.claude/workflows/review-and-correct.js`
-
-ODW ignores `commands/`; agents use the skill.
