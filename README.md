@@ -2,8 +2,8 @@
 
 Portable pre-PR review loop for ODW.
 
-- `workflows/review-and-correct.js` finds review issues with ODW and returns structured JSON + markdown.
-- `skills/review-until-clean/SKILL.md` tells any capable agent how to run the loop: review, fix with native tools, test, local commit, verify fixes.
+- `workflows/review-and-correct.js` is the executable review engine: fan out independent reviewers, adversarially verify findings, sweep fix regressions, and return structured JSON + concise markdown.
+- `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, run workflow, fix with native tools, test, local commit, verify fixes, carry a compact ledger, and report the final result.
 
 ## Key rule
 
@@ -22,6 +22,23 @@ If this is empty, stop; there is nothing branch-local to review:
 ```bash
 git diff --name-only <base>...HEAD
 ```
+
+## Why a workflow and a skill?
+
+A skill can document the loop, but it cannot enforce the review topology. The workflow JS makes the review repeatable:
+
+- runs the same six independent review dimensions every time
+- adversarially verifies each finding instead of trusting first-pass reviewer prose
+- returns stable fields (`confirmed[]`, `addressed[]`, `unresolved[]`, `regressions[]`) that the loop can act on
+- checks fix commits for regressions with `priorHead...head`
+- keeps reviewer transcripts out of the host agent context; the host carries only current blockers plus a compact ledger
+
+The split is intentional:
+
+- workflow: executable review engine
+- skill: orchestration, state discipline, and final reporting
+
+Two skills would document the same intent, but the orchestrating agent would have to recreate fan-out, verification, regression sweeps, and result shaping by hand on every run.
 
 ## Install
 
@@ -73,7 +90,7 @@ Loop policy:
 4. Run ODW review with `workspaceMode: "inplace"`.
 5. Fix critical/important findings only; minors do not force another round.
 6. Run verification, commit locally once per round.
-7. Re-run with `mode: "verify-fixes"`, full prior `confirmed[]`, and pre-fix HEAD.
+7. Re-run with `mode: "verify-fixes"`, current round blockers as `priorFindings`, and pre-fix HEAD.
 8. Stop when no critical/important unresolved findings or regressions remain.
 
 ## Result contract
@@ -90,10 +107,12 @@ report
 Verify-fixes mode returns:
 
 ```text
+addressed[]
 resolved[]
 unresolved[]
 regressions[]
 report
 ```
 
-`resolved[]` and `unresolved[]` keep full finding details plus `resolution` so a loop can continue without rehydrating prior state.
+
+`addressed[]` is the compact ledger input. `resolved[]`, `unresolved[]`, and `regressions[]` keep full details only for current blockers so the loop can continue without carrying historical report prose.
