@@ -12,7 +12,8 @@ Use ODW as the reviewer; use your normal harness tools for edits/tests. Keep the
 - NEVER push, force-push, delete branches, or mutate remote state.
 - Abort on shared branches: `main`, `master`, `develop`, `trunk`, `release/*`.
 - Fetch/read acceptance criteria caller-side; pass AC text to ODW. Do not make reviewer agents fetch Jira/GitHub.
-- If the implementation directly contradicts the AC/source material in total or on a key criterion, pause before fixes and ask the user. Summarize `source says` vs `implementation does`; do not assume reinterpretation or changed scope.
+- Add concise session/user clarifications or approved deviations to the AC text before invoking ODW. Treat those later instructions as authoritative over older AC/plan/docs, but preserve them in the final summary.
+- If the implementation directly contradicts the effective AC/source material in total or on a key criterion, pause before fixes and ask the user. Summarize `source says` vs `implementation does`; do not assume reinterpretation or changed scope.
 - Do not escalate incidental cleanup or minor code-cleanliness scope increases; the user clarification path is for direct AC/source contradictions.
 - Always pass `base` explicitly when known. If omitted, prefer `origin/develop`, else `origin/main`.
 - If `git diff --name-only <base>...HEAD` is empty, stop: there are no branch changes to review. Do not review base-only commits from a branch that is behind base.
@@ -41,11 +42,12 @@ Prefer `--args @file.json` for multiline AC. Default copy mode may strip `.git`;
 2. Save `preFixHead=$(git rev-parse HEAD)` before applying any fixes.
 3. Run review mode.
 4. If no critical/important `confirmed[]`, stop clean enough.
-5. If confirmed findings show a direct AC/source contradiction, ask the user before fixing or continuing. Include a concise `source says` vs `implementation does` summary.
-6. Fix only confirmed critical/important items; minors only if obvious and safe.
-7. Run build/lint/tests. Fix failures before proceeding.
-8. Commit locally once for the round. Do not push.
-9. Verify fixes:
+5. If confirmed findings show a direct AC/source contradiction not already covered by session/user clarification, ask the user before fixing or continuing. Include a concise `source says` vs `implementation does` summary.
+6. Record any user answer as a concise approved deviation/clarification and include it in AC for later ODW runs.
+7. Fix only confirmed critical/important items; minors only if obvious and safe.
+8. Run build/lint/tests. Fix failures before proceeding.
+9. Commit locally once for the round. Do not push.
+10. Verify fixes:
 
 Write `verify-args.json` containing the same fields plus `priorFindings` set to the current round's blockers (the findings just fixed or attempted), not every historic finding:
 
@@ -63,9 +65,9 @@ Then run:
 odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json
 ```
 
-10. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
-11. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.
-12. Repeat until no blockers remain or the caller/orchestrator's round limit is reached; default max rounds: 3.
+11. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
+12. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.
+13. Repeat until no blockers remain or the caller/orchestrator's round limit is reached; default max rounds: 3.
 
 ## State to carry
 
@@ -75,7 +77,7 @@ Carry two layers only:
 
 - `base`
 - `ticketKey`
-- `ac`
+- effective `ac`, including concise session/user clarifications and approved deviations
 - `preFixHead` for the current fix round, passed as `priorHead`
 - current round blockers passed as `priorFindings`
 - full finding detail only for blockers still being fixed or still unresolved
@@ -87,7 +89,7 @@ Append one session-only ledger entry per round:
 - round number
 - local fix commit SHA
 - `addressed[]` from verify-fixes
-- remaining blocker titles/counts, if any
+- approved deviations/clarifications used this round, if any
 
 After a finding is resolved, keep only its compact ledger line; drop its detail/reasoning from carried state. Do not carry dropped false positives except counts if useful. Do not pass already-resolved historical findings again.
 
@@ -100,4 +102,5 @@ Report from the compact ledger:
 - addressed findings grouped by round or commit (one line per finding)
 - local commit SHAs, if any
 - remaining blockers/minors and why, including the latest workflow status
+- approved deviations/clarifications used, if any
 - do not paste dropped/false-positive detail or duplicate addressed findings already listed by round

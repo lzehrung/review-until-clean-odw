@@ -42,6 +42,28 @@ The split is intentional:
 
 Two skills would document the same intent, but the orchestrating agent would have to recreate fan-out, verification, regression sweeps, and result shaping by hand on every run.
 
+## Process outline
+
+```mermaid
+flowchart TB
+  S[Begin multi-agent/dimension review] --> A[Gather AC + session clarifications]
+  A --> B[Preflight: safe branch, base, non-empty diff, baseline green]
+  B --> C[ODW review: 6 independent dimensions]
+  C --> D[Adversarially verify each finding]
+  D --> E{Critical/important blockers?}
+  E -- No --> Z[Final compact ledger summary]
+  E -- Direct AC contradiction --> H[Ask user: source says vs implementation does]
+  H --> H2[Update effective AC; rerun review]
+  E -- Yes --> F[Agent fixes current blockers]
+  F --> G[Run build/lint/tests and commit locally]
+  G --> I[verify-fixes: recheck current blockers + sweep fix commits]
+  I --> J{Unresolved blockers or regressions?}
+  J -- Yes --> K[Next iteration: fix remaining blockers/regressions]
+  J -- No --> Z
+```
+
+State stays small: full detail only for current blockers; resolved history becomes ledger lines from `addressed[]`. User-approved deviations from AC/plan/docs are folded into the effective AC and summarized at the end.
+
 ## Install
 
 ```bash

@@ -151,9 +151,11 @@ const reviewPrompt = (d, diff) =>
   `CLAUDE.md) for project conventions.\n\n` +
   `Judge the change against its INTENT, not just the diff. Read relevant in-repo plans/specs/docs/runbooks ` +
   `that the change touches. Treat repo context as enrichment: the acceptance criteria below remain ` +
-  `authoritative. If the implementation directly contradicts the AC in total or on a key criterion, do not ` +
-  `infer changed scope; report the source-vs-implementation difference as a blocking finding.\n\n` +
-  `Acceptance criteria for the ticket:\n${ac}\n\n` +
+  `authoritative. The AC may include later user/session clarifications or approved deviations; treat those ` +
+  `as authoritative over older AC/plan/docs. If the implementation directly contradicts the effective AC in ` +
+  `total or on a key criterion, do not infer changed scope; report the source-vs-implementation difference ` +
+  `as a blocking finding.\n\n` +
+  `Acceptance criteria (including any user/session clarifications or approved deviations):\n${ac}\n\n` +
   `Focus ONLY on this dimension:\n${d.focus}\n\n` +
   `Report concrete, actionable findings that are anchored in changed files/hunks from the diff. Be specific ` +
   `(file + line). Do NOT report pre-existing issues, base-only commits, harmless cleanup, minor style drift, ` +
@@ -165,12 +167,12 @@ const verifyPrompt = (f, diff) =>
   `for this ticket.\n\n` +
   `Finding (${f.severity}) in ${f.file}:${f.line || '?'}\n${f.title}\n${f.detail}\n` +
   `Suggested fix: ${f.suggested_fix}\n\n` +
-  `Acceptance criteria:\n${ac}\n\n` +
+  `Acceptance criteria (including any user/session clarifications or approved deviations):\n${ac}\n\n` +
   `Inspect the actual diff first: run \`git diff --name-only ${diff}\` and \`git diff ${diff}\`. Do not ` +
   `modify files. If the diff is empty, or the finding is not anchored to a changed file/hunk in that diff, ` +
-  `set real=false. When the verdict turns on intent or scope, consult the relevant in-repo plan/spec/docs. ` +
-  `If the evidence shows direct contradiction with the AC/source material, keep the finding in scope and ` +
-  `summarize the contradiction; do not infer changed scope. Re-rate severity from the evidence.`
+  `set real=false. When the verdict turns on intent or scope, consult the relevant in-repo plan/spec/docs, ` +
+  `but treat later user/session clarifications in the AC as authoritative. If the evidence shows direct ` +
+  `contradiction with the effective AC/source material, keep the finding in scope and summarize the contradiction; do not infer changed scope. Re-rate severity from the evidence.`
 
 const reverifyPrompt = (f) =>
   `A prior code review of ticket ${ticketKey} reported the finding below; fixes have since been applied. ` +
