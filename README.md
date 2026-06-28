@@ -98,21 +98,20 @@ Loop policy:
 Review mode returns:
 
 ```text
-confirmed[]
-clusters[]
-dropped[]
-report
+confirmed[]  verified real/in-scope findings
+clusters[]   shared-locus annotations; duplicates are cross-linked, not merged
+dropped[]    false positives or out-of-scope findings rejected by verification
+report       concise markdown summary
 ```
 
 Verify-fixes mode returns:
 
 ```text
-addressed[]
-resolved[]
-unresolved[]
-regressions[]
-report
+addressed[]    compact ledger input for resolved current-round blockers
+resolved[]     full details for current blockers verified as fixed
+unresolved[]   full details for current blockers still open
+regressions[]  new verified findings in the fix commits
+report         concise markdown summary
 ```
 
-
-`addressed[]` is the compact ledger input. `resolved[]`, `unresolved[]`, and `regressions[]` keep full details only for current blockers so the loop can continue without carrying historical report prose.
+Findings are expected to be anchored to changed files/hunks. The workflow reviews an empty diff as clean.
