@@ -106,7 +106,7 @@ const DIMENSIONS = [
     focus:
       'Solution shape and architecture. Does the change achieve the ticket goal at the right seam, with the ' +
       'right ownership, data flow, boundaries, and existing mechanisms? Flag wrong abstractions, layering ' +
-      'violations, duplicated subsystems/utilities, lifecycle/API contract mismatches, and scope creep.',
+      'violations, duplicated subsystems/utilities, lifecycle/API contract mismatches, and material scope changes that alter behavior or risk.',
   },
   {
     key: 'error-handling',
@@ -126,8 +126,8 @@ const DIMENSIONS = [
     key: 'conventions',
     focus:
       'Local repo conventions and maintainability hygiene. Check instruction files plus nearby code for naming, ' +
-      'file placement, exports, comments, dead code, and idiomatic local patterns. Do not re-litigate architecture ' +
-      'here; flag convention drift only when it makes the change harder to read, maintain, or review.',
+      'file placement, exports, comments, dead code, and idiomatic local patterns. Do not flag harmless cleanup ' +
+      'or minor style drift; flag only convention issues that materially hurt readability, maintainability, or reviewability.',
   },
   {
     key: 'docs',
@@ -156,9 +156,8 @@ const reviewPrompt = (d, diff) =>
   `Acceptance criteria for the ticket:\n${ac}\n\n` +
   `Focus ONLY on this dimension:\n${d.focus}\n\n` +
   `Report concrete, actionable findings that are anchored in changed files/hunks from the diff. Be specific ` +
-  `(file + line). Do NOT report pre-existing issues, base-only commits, style nits already consistent with ` +
-  `the codebase, speculative concerns, or acceptance-criteria work absent from an empty diff. If the change ` +
-  `is clean on this dimension, return an empty findings array.`
+  `(file + line). Do NOT report pre-existing issues, base-only commits, harmless cleanup, minor style drift, ` +
+  `or acceptance-criteria work absent from an empty diff. If the change is clean on this dimension, return an empty findings array.`
 
 const verifyPrompt = (f, diff) =>
   `Adversarially verify this code-review finding against ticket ${ticketKey}. Default to refuting it: a ` +

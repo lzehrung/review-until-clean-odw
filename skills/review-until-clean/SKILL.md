@@ -13,6 +13,7 @@ Use ODW as the reviewer; use your normal harness tools for edits/tests. Keep the
 - Abort on shared branches: `main`, `master`, `develop`, `trunk`, `release/*`.
 - Fetch/read acceptance criteria caller-side; pass AC text to ODW. Do not make reviewer agents fetch Jira/GitHub.
 - If the implementation directly contradicts the AC/source material in total or on a key criterion, pause before fixes and ask the user. Summarize `source says` vs `implementation does`; do not assume reinterpretation or changed scope.
+- Do not escalate incidental cleanup or minor code-cleanliness scope increases; the user clarification path is for direct AC/source contradictions.
 - Always pass `base` explicitly when known. If omitted, prefer `origin/develop`, else `origin/main`.
 - If `git diff --name-only <base>...HEAD` is empty, stop: there are no branch changes to review. Do not review base-only commits from a branch that is behind base.
 - Start only from a known-good baseline: run the repo's build/lint/tests first. If unknown, inspect package/config docs; ask only if still ambiguous.
