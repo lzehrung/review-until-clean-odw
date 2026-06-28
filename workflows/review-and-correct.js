@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-and-correct',
-  description: 'Final pre-PR review of a commit range -- a real multi-dimension review (big-picture goal + fit to project patterns/standards, through to oversights), adversarially verified, scoped to a ticket AC',
-  whenToUse: 'The LAST pass before opening a PR -- a real review: does the change achieve the ticket goal and fit the project\'s established patterns and standards (re-anchoring to design lines that drifted over iterations), and does it have the oversights/inconsistencies a reviewer would flag. Run it after implementing a ticket and getting build/lint/tests green, before opening a PR. Pass {ticketKey, base, head, ac}; always pass base explicitly (the repo integration branch, e.g. origin/develop or origin/main). After applying the fixes it returns, re-invoke with {...same, mode:"verify-fixes", priorFindings, priorHead} to confirm each is resolved and the fix commits introduced nothing new. mode:"lite" is a cheaper mid-work spot check (3 dimensions).',
+  description: 'Final pre-PR review of a commit range: multi-dimension review, adversarial verification, ticket-scoped output',
+  whenToUse: 'Run after implementation and build/lint/tests are green, before opening a PR. Pass {ticketKey, base, head, ac}; always pass base explicitly. After fixes, re-run with {...same, mode:"verify-fixes", priorFindings, priorHead} to confirm current blockers are resolved and the fix commits introduced nothing new.',
   phases: [
     { title: 'Review', detail: 'one reviewer per dimension over the diff' },
     { title: 'Verify', detail: 'adversarially verify each finding; drop false positives + out-of-scope' },
@@ -10,19 +10,17 @@ export const meta = {
   ],
 }
 
-// args: { ticketKey, base, head, ac, mode?, priorFindings?, priorHead?, persist? }
+// args: { ticketKey, base, head, ac, mode?, priorFindings?, priorHead? }
 //   base/head     -- git SHAs or refs. The diff reviewed is THREE-dot (base...head):
 //                    the branch's own work since it diverged from base, which excludes
 //                    anything already on base (e.g. a merged-in develop). This is the
 //                    diff GitHub shows for a PR -- reviewers no longer re-review
 //                    upstream commits the branch merged in.
-//   mode          -- 'review' (default) | 'lite' | 'verify-fixes'.
-//   priorFindings -- the confirmed[] from a previous review pass (verify-fixes mode);
-//                    presence of it defaults mode to 'verify-fixes'.
-//   priorHead     -- the head SHA reviewed in that previous pass; the regression sweep
+//   mode          -- 'review' (default) | 'verify-fixes'.
+//   priorFindings -- current round blockers being verified (not cumulative history);
+//                    presence of any defaults mode to 'verify-fixes'.
+//   priorHead     -- the head SHA before the current fix round; the regression sweep
 //                    scopes to priorHead...head (just the fix commits). Defaults to base.
-//   persist       -- optional file path; when set, one agent writes the report markdown
-//                    there (for headless/cron runs). The report is always returned too.
 // Tolerate a JSON-encoded string (a stringified object silently produced ticketKey
 // UNKNOWN once; parse it instead of ignoring it).
 const input = (() => {
@@ -43,8 +41,7 @@ const head = (input && input.head) || 'HEAD'
 const ac = (input && input.ac) || '(no acceptance criteria supplied)'
 const priorFindings = (input && input.priorFindings) || []
 const priorHead = (input && input.priorHead) || base
-const persist = (input && input.persist) || null
-const mode = (input && input.mode) || (priorFindings.length ? 'verify-fixes' : 'review')
+const mode = input && input.mode === 'verify-fixes' ? 'verify-fixes' : priorFindings.length ? 'verify-fixes' : 'review'
 
 // Three-dot: branch's own work since divergence from base. Two-dot would re-surface
 // commits the branch merged in from base (the upstream-noise that had to be steered
@@ -62,9 +59,9 @@ const FINDINGS_SCHEMA = {
           severity: { type: 'string', enum: ['critical', 'important', 'minor'] },
           file: { type: 'string' },
           line: { type: 'string', description: 'line number or range, "" if N/A' },
-          title: { type: 'string' },
-          detail: { type: 'string', description: 'what is wrong and why it matters' },
-          suggested_fix: { type: 'string' },
+          title: { type: 'string', description: 'short issue title' },
+          detail: { type: 'string', description: 'concise evidence: what is wrong and why it matters, 1-3 sentences' },
+          suggested_fix: { type: 'string', description: 'concise fix direction, not a patch' },
         },
         required: ['severity', 'file', 'title', 'detail', 'suggested_fix'],
       },
@@ -79,7 +76,7 @@ const VERDICT_SCHEMA = {
     real: { type: 'boolean', description: 'is this a genuine defect in the diff, not a false positive' },
     in_scope: { type: 'boolean', description: 'is fixing it within this ticket scope (not pre-existing / unrelated)' },
     severity: { type: 'string', enum: ['critical', 'important', 'minor'] },
-    reasoning: { type: 'string' },
+    reasoning: { type: 'string', description: 'brief evidence for the verdict' },
   },
   required: ['real', 'in_scope', 'severity', 'reasoning'],
 }
@@ -92,7 +89,7 @@ const RESOLVED_SCHEMA = {
       type: 'boolean',
       description: 'did the fix introduce a NEW problem at this site (incomplete patch, broke something adjacent)',
     },
-    reasoning: { type: 'string' },
+    reasoning: { type: 'string', description: 'brief evidence for the resolution verdict' },
   },
   required: ['resolved', 'regressed', 'reasoning'],
 }
@@ -107,13 +104,9 @@ const DIMENSIONS = [
   {
     key: 'design',
     focus:
-      'Big-picture fit -- the substantive review, not nits. Does the change actually achieve the ticket goal, ' +
-      "and does its APPROACH fit the project's established patterns, architecture, and standards? Read enough " +
-      'of the surrounding codebase to know how the project already solves this before judging. Flag: a bespoke ' +
-      'solution where a standard mechanism already exists, reinvented utilities, abstractions that do not match ' +
-      'sibling modules, layering/boundary violations, the wrong seam for the change, and DRIFT from the design ' +
-      'intent that was set early in the work but got buried over many iterations. Re-anchor the change to the ' +
-      'lines the plan/spec already drew. This is the architectural lens.',
+      'Solution shape and architecture. Does the change achieve the ticket goal at the right seam, with the ' +
+      'right ownership, data flow, boundaries, and existing mechanisms? Flag wrong abstractions, layering ' +
+      'violations, duplicated subsystems/utilities, lifecycle/API contract mismatches, and scope creep.',
   },
   {
     key: 'error-handling',
@@ -132,9 +125,9 @@ const DIMENSIONS = [
   {
     key: 'conventions',
     focus:
-      'Project conventions (the repo instruction file: AGENTS.md / CLAUDE.md / CONTRIBUTING), style, ' +
-      'comment quality, naming. Comments should describe current behavior/insight, not justify ' +
-      'hypotheticals. Flag dead code, scope creep, and inconsistency with neighbouring code.',
+      'Local repo conventions and maintainability hygiene. Check instruction files plus nearby code for naming, ' +
+      'file placement, exports, comments, dead code, and idiomatic local patterns. Do not re-litigate architecture ' +
+      'here; flag convention drift only when it makes the change harder to read, maintain, or review.',
   },
   {
     key: 'docs',
@@ -144,31 +137,21 @@ const DIMENSIONS = [
   },
 ]
 
-// lite mode trims to the tactical defect lenses, dropping the heavier design/
-// conventions/docs lenses -- for a cheaper spot check mid-implementation.
-const LITE_KEYS = new Set(['correctness', 'error-handling', 'tests'])
-const activeDimensions = mode === 'lite' ? DIMENSIONS.filter((d) => LITE_KEYS.has(d.key)) : DIMENSIONS
 
 const reviewPrompt = (d, diff) =>
-  `This is the FINAL review before a pull request is opened for ticket ${ticketKey} -- the last check ` +
-  `before human PR reviewers see this change, and a REAL review, not just a nit sweep. Across its ` +
-  `dimensions this review judges the whole spectrum: whether the change achieves the ticket's big-picture ` +
-  `goal and fits the project's established patterns, architecture, and standards, down through the ` +
-  `oversights and inconsistencies a careful reviewer would comment on. Over many implementation iterations ` +
-  `the design lines drawn early often get buried -- re-anchor the change to them. On THIS pass, focus only ` +
-  `on the **${d.key}** dimension defined below.\n\n` +
-  `You are reviewing the git diff ${diff} for ticket ${ticketKey}, on the **${d.key}** dimension.\n\n` +
+  `Final pre-PR review for ticket ${ticketKey}. Judge whether the diff satisfies the acceptance criteria, ` +
+  `fits established repo patterns, and contains issues a human reviewer should block. On this pass, focus ` +
+  `only on the **${d.key}** dimension.\n\n` +
+  `You are reviewing the git diff ${diff} for ticket ${ticketKey}, on the **${d.key}** dimension. ` +
+  `Review only: do not modify files, run formatters, commit, or push.\n\n` +
   `Run \`git diff ${diff}\` (THREE dots -- the branch's own work, excluding commits already on the base) ` +
   `to see the change. If \`git diff ${diff}\` is empty, return an empty findings array. Only review files ` +
   `and hunks present in that diff; do not report base-only, pre-existing, or merely missing work. Read the ` +
   `touched files + enough surrounding context to judge them. Read the repo instruction file (AGENTS.md or ` +
   `CLAUDE.md) for project conventions.\n\n` +
-  `Judge the change against its INTENT, not just the diff. Read the relevant plan/spec/design docs and ` +
-  `runbooks in the repo that this change touches (look under docs/, design notes, ADRs, the files the diff ` +
-  `references), and -- if an Atlassian/Jira tool is available to you -- read ticket ${ticketKey} and any ` +
-  `issues, specs, or pages it links for the full intent and constraints. Treat fetched context as ` +
-  `enrichment: the acceptance criteria below remain the authoritative scope, and an unavailable tool or ` +
-  `missing doc must not block the review.\n\n` +
+  `Judge the change against its INTENT, not just the diff. Read relevant in-repo plans/specs/docs/runbooks ` +
+  `that the change touches. Treat repo context as enrichment: the acceptance criteria below remain ` +
+  `authoritative, and missing docs must not block the review.\n\n` +
   `Acceptance criteria for the ticket:\n${ac}\n\n` +
   `Focus ONLY on this dimension:\n${d.focus}\n\n` +
   `Report concrete, actionable findings that are anchored in changed files/hunks from the diff. Be specific ` +
@@ -183,11 +166,10 @@ const verifyPrompt = (f, diff) =>
   `Finding (${f.severity}) in ${f.file}:${f.line || '?'}\n${f.title}\n${f.detail}\n` +
   `Suggested fix: ${f.suggested_fix}\n\n` +
   `Acceptance criteria:\n${ac}\n\n` +
-  `Inspect the actual diff first: run \`git diff --name-only ${diff}\` and \`git diff ${diff}\`. If the ` +
-  `diff is empty, or the finding is not anchored to a changed file/hunk in that diff, set real=false. When ` +
-  `the verdict turns on intent or scope, consult the relevant plan/spec/docs in the repo and -- if an ` +
-  `Atlassian/Jira tool is available -- ticket ${ticketKey} and its linked specs (best-effort; do not block ` +
-  `on an unavailable tool). A deliberate best-effort guard or an intentional scope decision is NOT a defect. ` +
+  `Inspect the actual diff first: run \`git diff --name-only ${diff}\` and \`git diff ${diff}\`. Do not ` +
+  `modify files. If the diff is empty, or the finding is not anchored to a changed file/hunk in that diff, ` +
+  `set real=false. When the verdict turns on intent or scope, consult the relevant in-repo plan/spec/docs. ` +
+  `A deliberate best-effort guard or an intentional scope decision is NOT a defect. ` +
   `Set real=false for false positives, in_scope=false for pre-existing/unrelated issues. Re-rate severity ` +
   `from the evidence.`
 
@@ -196,7 +178,7 @@ const reverifyPrompt = (f) =>
   `Decide whether it is now resolved in the current diff ${DIFF}.\n\n` +
   `Original finding (${f.severity}) in ${f.file}:${f.line || '?'}\n${f.title}\n${f.detail}\n` +
   `Suggested fix was: ${f.suggested_fix}\n\n` +
-  `Inspect the ACTUAL current code (run \`git diff ${DIFF}\`, read ${f.file}). Set resolved=true only if ` +
+  `Inspect the ACTUAL current code (run \`git diff ${DIFF}\`, read ${f.file}). Do not modify files. Set resolved=true only if ` +
   `the defect is genuinely gone -- not merely moved, renamed, or partially patched. Set regressed=true if ` +
   `the fix is incomplete or introduced a new problem at this site. Justify with evidence from the code.`
 
@@ -272,7 +254,7 @@ function annotateDuplicates(findings) {
   return clusters
 }
 
-function mdReview({ confirmed, dropped, clusters }) {
+function mdReview({ confirmed, dropped }) {
   const out = [
     `# Review -- ${ticketKey}`,
     ``,
@@ -282,25 +264,22 @@ function mdReview({ confirmed, dropped, clusters }) {
   ]
   if (confirmed.length) {
     out.push(`## Confirmed findings`, ``)
-    confirmed.forEach((f, i) => {
-      out.push(`### ${i + 1}. [${f.severity}] ${f.title}`)
-      out.push(`- **Where:** \`${f.file}\`${f.line ? `:${f.line}` : ''}  (${f.dimension})`)
-      out.push(`- **Issue:** ${f.detail}`)
-      out.push(`- **Fix:** ${f.suggested_fix}`)
-      if (f.related && f.related.length)
-        out.push(`- **Same locus flagged by:** ${f.related.map((r) => r.dimension).join(', ')} -- confirm these are the same defect, not separate ones`)
-      out.push(``)
+    confirmed.forEach((f) => {
+      const related = f.related && f.related.length ? `; related: ${f.related.map((r) => r.dimension).join(', ')}` : ''
+      out.push(`- [${f.severity}] \`${f.file}\`${f.line ? `:${f.line}` : ''} (${f.dimension}) -- ${f.title}${related}`)
     })
   } else {
     out.push(`Clean on all reviewed dimensions -- no confirmed findings.`, ``)
   }
-  if (clusters.length) {
-    out.push(`## Shared-locus clusters (not merged -- review)`, ``)
-    clusters.forEach((c, i) => out.push(`- Cluster ${i + 1}: ${c.map((m) => `${m.dimension}@${m.file}:${m.line || '?'}`).join(' / ')}`))
-    out.push(``)
-  }
   return out.join('\n')
 }
+
+const compactFinding = (f) => ({
+  severity: f.severity,
+  file: f.file,
+  line: f.line || '',
+  title: f.title,
+})
 
 function mdVerifyFixes({ resolved, unresolved, regressions }) {
   const out = [
@@ -311,6 +290,11 @@ function mdVerifyFixes({ resolved, unresolved, regressions }) {
       `${regressions.length} new regression(s).`,
     ``,
   ]
+  if (resolved.length) {
+    out.push(`## Addressed this round`, ``)
+    resolved.forEach((f) => out.push(`- [${f.severity}] \`${f.file}\`${f.line ? `:${f.line}` : ''} -- ${f.title}`))
+    out.push(``)
+  }
   if (unresolved.length) {
     out.push(`## Still open`, ``)
     unresolved.forEach((f) => {
@@ -323,29 +307,13 @@ function mdVerifyFixes({ resolved, unresolved, regressions }) {
   if (regressions.length) {
     out.push(`## New issues in the fix commits`, ``)
     regressions.forEach((f, i) => {
-      out.push(`### ${i + 1}. [${f.severity}] ${f.title}`)
-      out.push(`- **Where:** \`${f.file}\`${f.line ? `:${f.line}` : ''}  (${f.dimension})`)
-      out.push(`- **Issue:** ${f.detail}`)
-      out.push(`- **Fix:** ${f.suggested_fix}`)
-      out.push(``)
+      out.push(`- [${f.severity}] \`${f.file}\`${f.line ? `:${f.line}` : ''} (${f.dimension}) -- ${f.title}`)
     })
   }
   if (!unresolved.length && !regressions.length) out.push(`All prior findings resolved and no new issues in the fix commits.`, ``)
   return out.join('\n')
 }
 
-// Opt-in: persist the report to a file (headless/cron). One agent does the write
-// verbatim. The report is always returned regardless, so an interactive caller can
-// write/post it itself.
-async function persistReport(report) {
-  if (!persist) return
-  await agent(
-    `Write the following markdown to the file at the exact path \`${persist}\` (create parent dirs if ` +
-      `needed). Write it byte-for-byte, do not edit, summarize, or reformat it. Reply only "written".\n\n` +
-      `<<<REPORT\n${report}\nREPORT`,
-    { label: 'persist:report', phase: mode === 'verify-fixes' ? 'Re-verify' : 'Verify' }
-  )
-}
 
 if (mode === 'verify-fixes') {
   phase('Re-verify')
@@ -365,7 +333,7 @@ if (mode === 'verify-fixes') {
   // Scope the regression review to the fix commits (priorHead...head) so we hunt
   // for newly-introduced issues, not re-litigate the whole branch.
   const regrDiff = `${priorHead}...${head}`
-  const regr = await runReview(activeDimensions, regrDiff, 'Regression', 'Regression')
+  const regr = await runReview(DIMENSIONS, regrDiff, 'Regression', 'Regression')
   const regressions = regr.confirmed
 
   log(
@@ -373,13 +341,15 @@ if (mode === 'verify-fixes') {
       `${regressions.length} new regression(s) in the fix commits`
   )
 
+  const addressed = resolved.map(compactFinding)
   const report = mdVerifyFixes({ resolved, unresolved, regressions })
-  await persistReport(report)
   return {
     ticketKey,
     base,
     head,
     mode,
+    // Compact list for session-only loop summaries.
+    addressed,
     // Keep full finding details so an outer loop/skill can fix unresolved items
     // without rehydrating them from priorFindings.
     resolved: resolved.map((f) => ({ ...f, resolution: f.resolution || null })),
@@ -390,13 +360,12 @@ if (mode === 'verify-fixes') {
 }
 
 phase('Review')
-const { confirmed, dropped } = await runReview(activeDimensions, DIFF, 'Review', 'Verify')
+const { confirmed, dropped } = await runReview(DIMENSIONS, DIFF, 'Review', 'Verify')
 const clusters = annotateDuplicates(confirmed)
 if (clusters.length) log(`${ticketKey}: ${clusters.length} shared-locus cluster(s) cross-linked (annotated, not merged)`)
 log(`${ticketKey}: ${confirmed.length} confirmed (${dropped.length} dropped as false-positive/out-of-scope)`)
 
-const report = mdReview({ confirmed, dropped, clusters })
-await persistReport(report)
+const report = mdReview({ confirmed, dropped })
 return {
   ticketKey,
   base,

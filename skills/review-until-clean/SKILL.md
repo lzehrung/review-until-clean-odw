@@ -44,7 +44,7 @@ Prefer `--args @file.json` for multiline AC. Default copy mode may strip `.git`;
 7. Commit locally once for the round. Do not push.
 8. Verify fixes:
 
-Write `verify-args.json` containing the same fields plus:
+Write `verify-args.json` containing the same fields plus `priorFindings` set to the current round's blockers (the findings just fixed or attempted), not every historic finding:
 
 ```json
 {
@@ -57,31 +57,44 @@ Write `verify-args.json` containing the same fields plus:
 Then run:
 
 ```bash
-odw run review-and-correct --wait --source <repo> --args @verify-args.json
+odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json
 ```
 
 9. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
-10. Repeat until no blockers remain or max rounds is reached; default max rounds: 3.
+10. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.
+11. Repeat until no blockers remain or the caller/orchestrator's round limit is reached; default max rounds: 3.
 
 ## State to carry
 
-Keep only:
+Carry two layers only:
+
+### Current round state
 
 - `base`
 - `ticketKey`
 - `ac`
-- `preFixHead` for the round
-- full prior `confirmed[]`
-- final `report` markdown from the latest workflow run
+- `preFixHead` for the current fix round, passed as `priorHead`
+- current round blockers passed as `priorFindings`
+- full finding detail only for blockers still being fixed or still unresolved
 
-For unresolved summaries in verify-fixes, refer back to the saved full prior `confirmed[]` for detail/suggested fix.
+### Compact history
+
+Append one session-only ledger entry per round:
+
+- round number
+- local fix commit SHA
+- `addressed[]` from verify-fixes
+- remaining blocker titles/counts, if any
+
+After a finding is resolved, keep only its compact ledger line; drop its detail/reasoning from carried state. Do not carry dropped false positives except counts if useful. Do not pass already-resolved historical findings again.
 
 ## Final response
 
-Report:
+Report from the compact ledger:
 
-- rounds run
+- completed review/correct iterations, e.g. `Completed N review/correct iterations.`
+- total addressed legitimate findings, e.g. `15 findings addressed:`
+- addressed findings grouped by round or commit (one line per finding)
 - local commit SHAs, if any
-- remaining blockers/minors and why
-- final workflow `report`
-- explicit confirmation: branch name, local commits only, nothing pushed
+- remaining blockers/minors and why, including the latest workflow status
+- do not paste dropped/false-positive detail or duplicate addressed findings already listed by round

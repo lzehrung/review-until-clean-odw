@@ -57,15 +57,13 @@ Prefer `--args @file.json` for multiline AC.
 - `base` -- repo integration branch/ref. Always pass explicitly when known.
 - `head` -- defaults to `HEAD`.
 - `ac` -- acceptance criteria text. Fetch caller-side; do not make reviewer agents fetch it.
-- `mode` -- `"review"` (default) | `"lite"` | `"verify-fixes"`.
-- `priorFindings`, `priorHead` -- required for useful `verify-fixes` mode.
-- `persist` -- optional report path; returned `report` is always present.
+- `mode` -- `"review"` (default) | `"verify-fixes"`.
+- `priorFindings`, `priorHead` -- current round blockers and pre-fix HEAD for `verify-fixes` mode.
 
 ## Modes
 
 - **review** -- full 6-dimension pass.
-- **lite** -- correctness/error-handling/tests only.
-- **verify-fixes** -- rechecks `priorFindings` and reviews `priorHead...head` for regressions. Returns full `resolved[]`, full `unresolved[]`, `regressions[]`, and `report`.
+- **verify-fixes** -- rechecks `priorFindings` and reviews `priorHead...head` for regressions. Returns `addressed[]` (compact resolved findings for session summaries), full `resolved[]`, full `unresolved[]`, `regressions[]`, and `report`.
 
 ## Portable loop
 
@@ -76,8 +74,9 @@ Use the `review-until-clean` skill, not a wrapper command, for agent/harness-agn
 3. Fix critical/important findings using the active agent's normal edit tools.
 4. Run build/lint/tests.
 5. Commit locally once per round.
-6. Run ODW `verify-fixes` mode with full prior `confirmed[]` and pre-fix HEAD.
-7. Repeat until no critical/important unresolved/regressions remain, or max rounds is hit.
+6. Run ODW `verify-fixes` mode with current round blockers as `priorFindings` and pre-fix HEAD.
+7. Carry full detail only for current blockers; compress resolved history to round ledger lines from `addressed[]`. Do not write or commit a report artifact.
+8. Repeat until no critical/important unresolved/regressions remain, or the caller/orchestrator's round limit is hit.
 
 ## Install / share
 
