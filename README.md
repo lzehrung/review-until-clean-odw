@@ -1,9 +1,11 @@
 # review-until-clean-odw
 
-Portable pre-PR review loop for ODW.
+Portable pre-PR review loop for [Open Dynamic Workflows (ODW)](https://github.com/xz1220/open-dynamic-workflows).
 
 - `workflows/review-and-correct.js` is the executable review engine: fan out independent reviewers, adversarially verify findings, sweep fix regressions, and return structured JSON + concise markdown.
 - `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, run workflow, fix with native tools, test, local commit, verify fixes, carry a compact ledger, and report the final result.
+
+ODW brings Claude Code-style dynamic workflows -- JavaScript-orchestrated subagent fan-out with structured results -- to other agent harnesses, so this repo can use one executable review engine from Codex/Cursor/Claude-style workflows.
 
 ## Key rule
 
