@@ -1,11 +1,11 @@
 # review-until-clean-odw
 
-Portable pre-PR review loop skill and workflow via Claude Code and [Open Dynamic Workflows (ODW)](https://github.com/xz1220/open-dynamic-workflows) for other harnesses.
+Portable pre-PR review loop skill and Claude Code-compatible dynamic workflow, runnable in Claude Code and via [Open Dynamic Workflows (ODW)](https://github.com/xz1220/open-dynamic-workflows) for other harnesses.
 
-- `workflows/review-and-correct.js` is the executable review engine: fan out independent reviewers, adversarially verify findings, sweep fix regressions, and return structured JSON + concise markdown.
-- `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, run workflow, fix with native tools, test, local commit, verify fixes, carry a compact ledger, and report the final result.
+- `workflows/review-and-correct.js` is the executable Claude Code-compatible review workflow: fan out independent reviewers, adversarially verify findings, sweep fix regressions, and return structured JSON + concise markdown.
+- `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, run the workflow, fix with native tools, test, local commit, verify fixes, carry a compact ledger, and report the final result.
 
-ODW brings Claude Code-style dynamic workflows -- JavaScript-orchestrated subagent fan-out with structured results -- to other agent harnesses, so this repo can use one executable review engine from Codex/Cursor/Claude-style workflows.
+The workflow is compatible with Claude Code's dynamic workflow model. ODW runs that workflow from other agent harnesses; the examples and installer use the ODW CLI.
 
 ## Key rule
 
@@ -17,7 +17,7 @@ Create an ODW config:
 { "workspaceMode": "inplace" }
 ```
 
-Use it for this workflow. ODW default copy mode may strip `.git` and produce unanchored findings.
+Use it for this git-diff workflow. ODW default copy mode may strip `.git` and produce unanchored findings.
 
 If this is empty, stop; there is nothing branch-local to review:
 
@@ -48,7 +48,7 @@ Two skills would document the same intent, but the orchestrating agent would hav
 flowchart TB
   S[Begin multi-agent/dimension review] --> A[Gather AC + session clarifications]
   A --> B[Preflight: safe branch, base, non-empty diff, baseline green]
-  B --> C[ODW review: 6 independent dimensions]
+  B --> C[Workflow review: 6 independent dimensions]
   C --> D[Adversarially verify each finding]
   D --> E{Critical/important blockers?}
   E -- No --> Z[Final compact ledger summary]
@@ -66,18 +66,39 @@ State stays small: full detail only for current blockers; resolved history becom
 
 ## Install
 
+Cross-platform installer (Windows/macOS/Linux; copies by default, no symlink privileges required):
+
+```bash
+node scripts/install.mjs
+```
+
+PowerShell:
+
+```powershell
+node .\scripts\install.mjs
+```
+
+The installer writes:
+
+- ODW workflow copy: `~/.odw/workflows/review-and-correct.js`
+- `~/.agents/skills/review-until-clean`
+- common harness skill copies: `~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`
+
+Options:
+
+```bash
+node scripts/install.mjs --dry-run
+node scripts/install.mjs --link
+node scripts/install.mjs --no-harness
+node scripts/install.mjs --harness-dir ~/.my-agent/skills
+```
+
+Manual ODW fallback:
+
 ```bash
 mkdir -p ~/.odw/workflows ~/.agents/skills
 cp workflows/review-and-correct.js ~/.odw/workflows/review-and-correct.js
 cp -R skills/review-until-clean ~/.agents/skills/review-until-clean
-```
-
-Optional agent links:
-
-```bash
-mkdir -p ~/.codex/skills ~/.cursor/skills
-ln -sfn ~/.agents/skills/review-until-clean ~/.codex/skills/review-until-clean
-ln -sfn ~/.agents/skills/review-until-clean ~/.cursor/skills/review-until-clean
 ```
 
 ## Run one review

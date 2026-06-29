@@ -1,18 +1,18 @@
 ---
 name: review-until-clean
-description: Run an agent/harness-agnostic pre-PR review loop with ODW's review-and-correct workflow. Use when asked to review until clean, run final review before PR, iterate review fixes, or verify fixes after review findings.
+description: Run an agent/harness-agnostic pre-PR review loop with the Claude Code-compatible review-and-correct dynamic workflow. ODW commands are the documented runner examples.
 ---
 
 # Review Until Clean
 
-Use ODW as the reviewer; use your normal harness tools for edits/tests. Keep the loop small and local.
+Use the review-and-correct dynamic workflow as the reviewer; use your normal harness tools for edits/tests. ODW commands are shown for running it outside Claude Code.
 
 ## Invariants
 
 - NEVER push, force-push, delete branches, or mutate remote state.
 - Abort on shared branches: `main`, `master`, `develop`, `trunk`, `release/*`.
-- Fetch/read acceptance criteria caller-side; pass AC text to ODW. Do not make reviewer agents fetch Jira/GitHub.
-- Add concise session/user clarifications or approved deviations to the AC text before invoking ODW. Treat those later instructions as authoritative over older AC/plan/docs, but preserve them in the final summary.
+- Fetch/read acceptance criteria caller-side; pass AC text to the workflow. Do not make reviewer agents fetch Jira/GitHub.
+- Add concise session/user clarifications or approved deviations to the AC text before invoking the workflow. Treat those later instructions as authoritative over older AC/plan/docs, but preserve them in the final summary.
 - If the implementation directly contradicts the effective AC/source material in total or on a key criterion, pause before fixes and ask the user. Summarize `source says` vs `implementation does`; do not assume reinterpretation or changed scope.
 - Do not escalate incidental cleanup or minor code-cleanliness scope increases; the user clarification path is for direct AC/source contradictions.
 - Always pass `base` explicitly when known. If omitted, prefer `origin/develop`, else `origin/main`.
@@ -34,7 +34,7 @@ odw run review-and-correct --wait --config <odw-inplace-config.json> --source <r
 }'
 ```
 
-Prefer `--args @file.json` for multiline AC. Default copy mode may strip `.git`; do not use it for this git-diff workflow.
+Prefer `--args @file.json` for multiline AC. ODW default copy mode may strip `.git`; do not use it for this git-diff workflow.
 
 ## Loop
 
@@ -43,7 +43,7 @@ Prefer `--args @file.json` for multiline AC. Default copy mode may strip `.git`;
 3. Run review mode.
 4. If no critical/important `confirmed[]`, stop clean enough.
 5. If confirmed findings show a direct AC/source contradiction not already covered by session/user clarification, ask the user before fixing or continuing. Include a concise `source says` vs `implementation does` summary.
-6. Record any user answer as a concise approved deviation/clarification and include it in AC for later ODW runs.
+6. Record any user answer as a concise approved deviation/clarification and include it in AC for later workflow runs.
 7. Fix only confirmed critical/important items; minors only if obvious and safe.
 8. Run build/lint/tests. Fix failures before proceeding.
 9. Commit locally once for the round. Do not push.
