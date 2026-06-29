@@ -5,7 +5,7 @@ description: Run an agent/harness-agnostic pre-PR review loop with the Claude Co
 
 # Review Until Clean
 
-Use the review-and-correct dynamic workflow as the reviewer; use your normal harness tools for edits/tests. ODW commands are shown for running it outside Claude Code.
+Use the review-and-correct dynamic workflow as the reviewer; use your normal harness tools for edits/tests. In Claude Code, invoke it with the native workflow tool; in other harnesses, run it with ODW. The engine and its `args` are identical either way.
 
 ## Invariants
 
@@ -21,6 +21,29 @@ Use the review-and-correct dynamic workflow as the reviewer; use your normal har
 - Critical/important findings block. Minor findings are reported, not loop-forcing.
 
 ## Review command
+
+The same `review-and-correct` engine runs in both harnesses with identical `args`. Pick the invocation for yours.
+
+### Claude Code (native)
+
+Invoke the workflow tool by `scriptPath`, passing `args` as a real JSON object (a stringified object loses the fields):
+
+```
+Workflow({
+  scriptPath: "<install path>/review-and-correct.js",   // e.g. ~/.claude/workflows/review-and-correct.js
+  args: {
+    ticketKey: "ENG-1234",
+    base: "origin/develop",
+    head: "HEAD",
+    ac: "<acceptance criteria text>",
+    mode: "review"
+  }
+})
+```
+
+Reviewer agents run `git diff` in the real working tree, so no extra config is needed. `~/.claude/workflows/` is not scanned by the named-workflow registry, so always invoke by `scriptPath`, not by name.
+
+### ODW (other harnesses)
 
 Use a temp ODW config with `{"workspaceMode":"inplace"}` so reviewer agents can run `git diff` in the real repo.
 
@@ -59,11 +82,10 @@ Write `verify-args.json` containing the same fields plus `priorFindings` set to 
 }
 ```
 
-Then run:
+Then re-run the same engine in verify-fixes mode:
 
-```bash
-odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json
-```
+- **Claude Code:** `Workflow({ scriptPath: "<install path>/review-and-correct.js", args: { ...same fields, mode: "verify-fixes", priorFindings, priorHead } })`
+- **ODW:** `odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json`
 
 11. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
 12. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.

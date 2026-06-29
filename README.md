@@ -81,6 +81,7 @@ node .\scripts\install.mjs
 The installer writes:
 
 - ODW workflow copy: `~/.odw/workflows/review-and-correct.js`
+- Claude Code workflow copy: `~/.claude/workflows/review-and-correct.js` (so Claude Code's workflow tool resolves it by `scriptPath`; skipped with `--no-harness`)
 - `~/.agents/skills/review-until-clean`
 - common harness skill copies: `~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`
 
@@ -93,15 +94,44 @@ node scripts/install.mjs --no-harness
 node scripts/install.mjs --harness-dir ~/.my-agent/skills
 ```
 
-Manual ODW fallback:
+Manual fallback:
 
 ```bash
+# ODW + shared skill
 mkdir -p ~/.odw/workflows ~/.agents/skills
 cp workflows/review-and-correct.js ~/.odw/workflows/review-and-correct.js
 cp -R skills/review-until-clean ~/.agents/skills/review-until-clean
+
+# Claude Code (workflow by scriptPath + skill)
+mkdir -p ~/.claude/workflows ~/.claude/skills
+cp workflows/review-and-correct.js ~/.claude/workflows/review-and-correct.js
+cp -R skills/review-until-clean ~/.claude/skills/review-until-clean
 ```
 
 ## Run one review
+
+The same engine runs in either harness with identical `args`.
+
+### Claude Code (native)
+
+Invoke the workflow tool by `scriptPath`, passing `args` as a real JSON object:
+
+```
+Workflow({
+  scriptPath: "~/.claude/workflows/review-and-correct.js",
+  args: {
+    ticketKey: "ENG-1234",
+    base: "origin/develop",
+    head: "HEAD",
+    ac: "<acceptance criteria text>",
+    mode: "review"
+  }
+})
+```
+
+`~/.claude/workflows/` is not scanned by the named-workflow registry, so invoke by `scriptPath`, not by name. Reviewer agents run `git diff` in the real working tree, so no extra config is needed.
+
+### ODW (other harnesses)
 
 Prefer `--args @file.json` for multiline AC.
 
@@ -132,7 +162,7 @@ Loop policy:
 1. Feature branch only. Never push.
 2. Non-empty `<base>...HEAD` diff only.
 3. Baseline build/lint/tests green.
-4. Run ODW review with `workspaceMode: "inplace"`.
+4. Run the workflow review: Claude Code via the workflow tool, or ODW with `workspaceMode: "inplace"`.
 5. Fix critical/important findings only; minors do not force another round.
 6. Run verification, commit locally once per round.
 7. Re-run with `mode: "verify-fixes"`, current round blockers as `priorFindings`, and pre-fix HEAD.

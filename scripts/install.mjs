@@ -46,6 +46,9 @@ const workflowSrc = path.join(root, 'workflows', 'review-and-correct.js')
 const skillSrc = path.join(root, 'skills', 'review-until-clean')
 
 const workflowDest = path.join(home, '.odw', 'workflows', 'review-and-correct.js')
+// Claude Code invokes the workflow by scriptPath; place a copy where its workflow
+// tool expects it so the documented `~/.claude/workflows/...` path resolves.
+const claudeWorkflowDest = path.join(home, '.claude', 'workflows', 'review-and-correct.js')
 const sharedSkillDest = path.join(home, '.agents', 'skills', 'review-until-clean')
 
 const defaultHarnessSkillDirs = [
@@ -61,7 +64,8 @@ const harnessSkillDirs = installHarnesses
 await assertExists(workflowSrc)
 await assertExists(skillSrc)
 
-await copyFile(workflowSrc, workflowDest)
+await installWorkflow(workflowSrc, workflowDest)
+if (installHarnesses) await installWorkflow(workflowSrc, claudeWorkflowDest)
 await installSkill(skillSrc, sharedSkillDest)
 for (const dir of harnessSkillDirs) {
   await installSkill(skillSrc, path.join(dir, 'review-until-clean'))
@@ -69,8 +73,25 @@ for (const dir of harnessSkillDirs) {
 
 log('Done.')
 log('ODW workflow: ' + workflowDest)
+if (installHarnesses) log('Claude Code workflow: ' + claudeWorkflowDest)
 log('Shared skill: ' + sharedSkillDest)
 if (harnessSkillDirs.length) log('Harness skill dirs: ' + harnessSkillDirs.join(', '))
+
+async function installWorkflow(src, dest) {
+  if (link) {
+    log(`${dryRun ? 'Would link' : 'Linking'} ${src} -> ${dest}`)
+    if (dryRun) return
+    try {
+      await fs.mkdir(path.dirname(dest), { recursive: true })
+      await fs.rm(dest, { force: true })
+      await fs.symlink(src, dest, 'file')
+      return
+    } catch (error) {
+      log(`Link failed; copying: ${error.message}`)
+    }
+  }
+  await copyFile(src, dest)
+}
 
 async function copyFile(src, dest) {
   log(`${dryRun ? 'Would copy' : 'Copying'} ${src} -> ${dest}`)
