@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'one reviewer per dimension over the diff' },
     { title: 'Verify', detail: 'adversarially verify each finding; drop false positives + out-of-scope' },
-    { title: 'Re-verify', detail: 'verify-fixes mode: confirm each prior finding is now resolved' },
+    { title: 'Re-verify', detail: 'verify-fixes mode: re-review the CURRENT code at each prior finding locus (evidence-first; lines are stale, re-locate by symbol)' },
     { title: 'Regression', detail: 'verify-fixes mode: review the fix delta for newly-introduced issues' },
   ],
 }
@@ -84,14 +84,26 @@ const VERDICT_SCHEMA = {
 const RESOLVED_SCHEMA = {
   type: 'object',
   properties: {
-    resolved: { type: 'boolean', description: 'is the original finding now fully addressed in the current diff' },
+    current_evidence: {
+      type: 'string',
+      description:
+        'A short VERBATIM quote of the CURRENT post-fix code at the finding\'s locus, re-located by symbol/content ' +
+        '(line numbers from the prior finding have SHIFTED under the fix commit -- do NOT trust them). Use "<absent>" ' +
+        'if the described code/defect no longer exists in the current file. This quote is the REQUIRED basis for the verdict.',
+    },
+    resolved: {
+      type: 'boolean',
+      description:
+        'true UNLESS you can point to the original defect STILL present in current_evidence. Code that is gone, ' +
+        'removed, or replaced is resolved. Never infer "still broken" from the prior description alone.',
+    },
     regressed: {
       type: 'boolean',
-      description: 'did the fix introduce a NEW problem at this site (incomplete patch, broke something adjacent)',
+      description: 'did the fix introduce a NEW problem at this site, visible in current_evidence (incomplete patch, broke something adjacent)',
     },
-    reasoning: { type: 'string', description: 'brief evidence for the resolution verdict' },
+    reasoning: { type: 'string', description: 'brief justification grounded ONLY in current_evidence' },
   },
-  required: ['resolved', 'regressed', 'reasoning'],
+  required: ['current_evidence', 'resolved', 'regressed', 'reasoning'],
 }
 
 const DIMENSIONS = [
@@ -174,14 +186,26 @@ const verifyPrompt = (f, diff) =>
   `but treat later user/session clarifications in the AC as authoritative. If the evidence shows direct ` +
   `contradiction with the effective AC/source material, keep the finding in scope and summarize the contradiction; do not infer changed scope. Re-rate severity from the evidence.`
 
+// Re-REVIEW the current code at the finding's locus, do NOT re-judge the stale finding text.
+// We feed only the MINIMAL claim (file + dimension + title) -- never the prior detail/suggested-fix
+// narrative or its (now-shifted) line numbers, which previously anchored the verifier into
+// confirming an already-fixed finding. The verdict must be grounded in a verbatim quote of the
+// CURRENT code (RESOLVED_SCHEMA.current_evidence), and the default is RESOLVED unless the original
+// defect can be pointed to in that quote.
 const reverifyPrompt = (f) =>
-  `A prior code review of ticket ${ticketKey} reported the finding below; fixes have since been applied. ` +
-  `Decide whether it is now resolved in the current diff ${DIFF}.\n\n` +
-  `Original finding (${f.severity}) in ${f.file}:${f.line || '?'}\n${f.title}\n${f.detail}\n` +
-  `Suggested fix was: ${f.suggested_fix}\n\n` +
-  `Inspect the ACTUAL current code (run \`git diff ${DIFF}\`, read ${f.file}). Do not modify files. Set resolved=true only if ` +
-  `the defect is genuinely gone -- not merely moved, renamed, or partially patched. Set regressed=true if ` +
-  `the fix is incomplete or introduced a new problem at this site. Justify with evidence from the code.`
+  `A prior review of ${ticketKey} flagged a ${f.dimension || 'code'} issue in \`${f.file}\` titled "${f.title}". ` +
+  `Fixes have since been committed. Determine, FROM THE CURRENT CODE ONLY, whether that issue still exists.\n\n` +
+  `Do NOT trust the prior finding's description, suggested fix, or line numbers -- the line numbers have SHIFTED ` +
+  `under the fix commit, so re-locate the relevant code by SYMBOL / function name / content, never by line number. ` +
+  `Treat the title as a hint about WHERE to look, not as evidence of the current state.\n\n` +
+  `Steps:\n` +
+  `1. Run \`git diff ${DIFF} -- ${f.file}\` and read the current \`${f.file}\` to see the post-fix code.\n` +
+  `2. Re-locate the code the finding was about (by symbol/content).\n` +
+  `3. Quote the CURRENT code verbatim into current_evidence (or "<absent>" if that code/defect no longer exists).\n` +
+  `4. Set resolved=true UNLESS you can point to the ORIGINAL defect still present in that quoted current code. ` +
+  `A defect that is gone, removed, or replaced is resolved -- do not infer "still broken" from the prior text alone.\n` +
+  `5. Set regressed=true only if the fix introduced a NEW problem at this site, visible in the current code. ` +
+  `Justify in reasoning using ONLY current_evidence. Do not modify files.`
 
 const rank = { critical: 0, important: 1, minor: 2 }
 
@@ -302,6 +326,7 @@ function mdVerifyFixes({ resolved, unresolved, regressions }) {
       const r = f.resolution || {}
       out.push(`- [${f.severity}] \`${f.file}\`${f.line ? `:${f.line}` : ''} -- ${f.title}`)
       out.push(`  - ${r.regressed ? 'Fix regressed/incomplete: ' : 'Not resolved: '}${r.reasoning || 'no verdict returned'}`)
+      if (r.current_evidence) out.push(`  - current code: \`${String(r.current_evidence).replace(/\n/g, ' ').slice(0, 200)}\``)
     })
     out.push(``)
   }
