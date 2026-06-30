@@ -44,17 +44,15 @@ Two skills would document the same intent, but the orchestrating agent would hav
 
 ## Optional Codegraph context
 
-If the local Codegraph skill/CLI is available, the orchestrating agent can add a compact `codegraphContext` to the workflow args. The workflow passes that context to the design, tests, and conventions review dimensions as advisory leads.
+If the local Codegraph skill/CLI is available, the orchestrating agent can add a compact `codegraphContext` from `codegraph review`. The workflow passes that context to the design, tests, and conventions review dimensions as advisory leads.
 
-Recommended sources:
+Recommended command:
 
 ```bash
 codegraph review --root <repo> --base <base> --head <head> --summary
-codegraph impact --root <repo> --base <base> --head <head> --pretty
-codegraph duplicates --root <repo> <changed-root> --profile cleanup
 ```
 
-Use review/impact for structural risk and candidate tests. Use duplicates to catch duplicate code introduced by the change. Codegraph output is not proof; reviewers still verify against the actual diff/code. If Codegraph is unavailable, run the review without `codegraphContext`.
+Use the summary for structural risk and candidate-test leads. Codegraph output is not proof; reviewers still verify against the actual diff/code. If Codegraph is unavailable, run the review without `codegraphContext`.
 
 ## Process outline
 
@@ -62,7 +60,7 @@ Use review/impact for structural risk and candidate tests. Use duplicates to cat
 flowchart TB
   S[Begin multi-agent/dimension review] --> A[Gather AC + session clarifications]
   A --> CG{Codegraph available?}
-  CG -- Yes --> CG2[Add review/impact/duplicate context]
+  CG -- Yes --> CG2[Add Codegraph review context]
   CG -- No --> B[Preflight: safe branch, base, non-empty diff, baseline green]
   CG2 --> B
   B --> C[Workflow review: 6 independent dimensions]
@@ -141,7 +139,7 @@ Workflow({
     base: "origin/develop",
     head: "HEAD",
     ac: "<acceptance criteria text>",
-    codegraphContext: "<optional compact Codegraph review/impact/duplicate summary>",
+    codegraphContext: "<optional compact Codegraph review summary>",
     mode: "review"
   }
 })
@@ -163,7 +161,7 @@ odw run review-and-correct \
     "base": "origin/develop",
     "head": "HEAD",
     "ac": "<acceptance criteria text>",
-    "codegraphContext": "<optional compact Codegraph review/impact/duplicate summary>",
+    "codegraphContext": "<optional compact Codegraph review summary>",
     "mode": "review"
   }'
 ```

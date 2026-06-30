@@ -22,17 +22,15 @@ Use the review-and-correct dynamic workflow as the reviewer; use your normal har
 
 ## Optional Codegraph context
 
-If the Codegraph skill/CLI is available, use it before review for non-trivial diffs and pass a compact summary as `codegraphContext`. If unavailable, continue without it.
+If the Codegraph skill/CLI is available, use it before review for non-trivial diffs and pass a compact `codegraph review` summary as `codegraphContext`. If unavailable, continue without it.
 
 Collect only advisory leads:
 
 ```bash
 codegraph review --root <repo> --base <base> --head <head> --summary
-codegraph impact --root <repo> --base <base> --head <head> --pretty
-codegraph duplicates --root <repo> <changed-root> --profile cleanup
 ```
 
-Use `codegraph review` and `impact` for structural risk/candidate tests. Use `duplicates` to look for duplicate code introduced by the change, bounded to changed roots when possible. Treat Codegraph output as leads, not proof; reviewers still verify against the diff/code. Do not carry raw Codegraph output after the round.
+Use the summary for structural risk and candidate-test leads. Treat Codegraph output as leads, not proof; reviewers still verify against the diff/code. Do not carry raw Codegraph output after the round.
 
 For verify-fixes, scope Codegraph context to the fix commits with `--base <preFixHead> --head <head>` when useful.
 
@@ -52,7 +50,7 @@ Workflow({
     base: "origin/develop",
     head: "HEAD",
     ac: "<acceptance criteria text>",
-    codegraphContext: "<optional compact Codegraph review/impact/duplicate summary>",
+    codegraphContext: "<optional compact Codegraph review summary>",
     mode: "review"
   }
 })
@@ -70,7 +68,7 @@ odw run review-and-correct --wait --config <odw-inplace-config.json> --source <r
   "base": "origin/develop",
   "head": "HEAD",
   "ac": "<acceptance criteria text>",
-  "codegraphContext": "<optional compact Codegraph review/impact/duplicate summary>",
+  "codegraphContext": "<optional compact Codegraph review summary>",
   "mode": "review"
 }'
 ```

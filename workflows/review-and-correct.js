@@ -21,7 +21,7 @@ export const meta = {
 //                    presence of any defaults mode to 'verify-fixes'.
 //   priorHead     -- the head SHA before the current fix round; the regression sweep
 //                    scopes to priorHead...head (just the fix commits). Defaults to base.
-//   codegraphContext -- optional compact Codegraph review/impact/duplicate leads;
+//   codegraphContext -- optional compact Codegraph review leads;
 //                       passed to design/tests/conventions reviewers as advisory context.
 // Tolerate a JSON-encoded string (a stringified object silently produced ticketKey
 // UNKNOWN once; parse it instead of ignoring it).
