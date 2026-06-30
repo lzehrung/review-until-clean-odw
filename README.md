@@ -42,12 +42,29 @@ The split is intentional:
 
 Two skills would document the same intent, but the orchestrating agent would have to recreate fan-out, verification, regression sweeps, and result shaping by hand on every run.
 
+## Optional Codegraph context
+
+If the local Codegraph skill/CLI is available, the orchestrating agent can add a compact `codegraphContext` to the workflow args. The workflow passes that context to the design, tests, and conventions review dimensions as advisory leads.
+
+Recommended sources:
+
+```bash
+codegraph review --root <repo> --base <base> --head <head> --summary
+codegraph impact --root <repo> --base <base> --head <head> --pretty
+codegraph duplicates --root <repo> <changed-root> --profile cleanup
+```
+
+Use review/impact for structural risk and candidate tests. Use duplicates to catch duplicate code introduced by the change. Codegraph output is not proof; reviewers still verify against the actual diff/code. If Codegraph is unavailable, run the review without `codegraphContext`.
+
 ## Process outline
 
 ```mermaid
 flowchart TB
   S[Begin multi-agent/dimension review] --> A[Gather AC + session clarifications]
-  A --> B[Preflight: safe branch, base, non-empty diff, baseline green]
+  A --> CG{Codegraph available?}
+  CG -- Yes --> CG2[Add review/impact/duplicate context]
+  CG -- No --> B[Preflight: safe branch, base, non-empty diff, baseline green]
+  CG2 --> B
   B --> C[Workflow review: 6 independent dimensions]
   C --> D[Adversarially verify each finding]
   D --> E{Critical/important blockers?}
@@ -124,6 +141,7 @@ Workflow({
     base: "origin/develop",
     head: "HEAD",
     ac: "<acceptance criteria text>",
+    codegraphContext: "<optional compact Codegraph review/impact/duplicate summary>",
     mode: "review"
   }
 })
@@ -145,6 +163,7 @@ odw run review-and-correct \
     "base": "origin/develop",
     "head": "HEAD",
     "ac": "<acceptance criteria text>",
+    "codegraphContext": "<optional compact Codegraph review/impact/duplicate summary>",
     "mode": "review"
   }'
 ```

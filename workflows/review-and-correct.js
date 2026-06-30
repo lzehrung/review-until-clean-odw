@@ -10,7 +10,7 @@ export const meta = {
   ],
 }
 
-// args: { ticketKey, base, head, ac, mode?, priorFindings?, priorHead? }
+// args: { ticketKey, base, head, ac, mode?, priorFindings?, priorHead?, codegraphContext? }
 //   base/head     -- git SHAs or refs. The diff reviewed is THREE-dot (base...head):
 //                    the branch's own work since it diverged from base, which excludes
 //                    anything already on base (e.g. a merged-in develop). This is the
@@ -21,6 +21,8 @@ export const meta = {
 //                    presence of any defaults mode to 'verify-fixes'.
 //   priorHead     -- the head SHA before the current fix round; the regression sweep
 //                    scopes to priorHead...head (just the fix commits). Defaults to base.
+//   codegraphContext -- optional compact Codegraph review/impact/duplicate leads;
+//                       passed to design/tests/conventions reviewers as advisory context.
 // Tolerate a JSON-encoded string (a stringified object silently produced ticketKey
 // UNKNOWN once; parse it instead of ignoring it).
 const input = (() => {
@@ -39,6 +41,7 @@ const ticketKey = (input && input.ticketKey) || 'UNKNOWN'
 const base = (input && input.base) || 'origin/main'
 const head = (input && input.head) || 'HEAD'
 const ac = (input && input.ac) || '(no acceptance criteria supplied)'
+const codegraphContext = (input && input.codegraphContext) || ''
 const priorFindings = (input && input.priorFindings) || []
 const priorHead = (input && input.priorHead) || base
 const mode = input && input.mode === 'verify-fixes' ? 'verify-fixes' : priorFindings.length ? 'verify-fixes' : 'review'
@@ -136,7 +139,11 @@ const DIMENSIONS = [
       'commands against the real code (read the referenced source). Flag anything that would mislead an operator.',
   },
 ]
-
+const CODEGRAPH_DIMENSIONS = new Set(['design', 'tests', 'conventions'])
+const codegraphSection = (d) =>
+  codegraphContext && CODEGRAPH_DIMENSIONS.has(d.key)
+    ? `Codegraph context (advisory leads only; verify against the diff/code before reporting):\n${codegraphContext}\n\n`
+    : ''
 
 const reviewPrompt = (d, diff) =>
   `Final pre-PR review for ticket ${ticketKey}. Judge whether the diff satisfies the acceptance criteria, ` +
@@ -156,6 +163,7 @@ const reviewPrompt = (d, diff) =>
   `total or on a key criterion, do not infer changed scope; report the source-vs-implementation difference ` +
   `as a blocking finding.\n\n` +
   `Acceptance criteria (including any user/session clarifications or approved deviations):\n${ac}\n\n` +
+  codegraphSection(d) +
   `Focus ONLY on this dimension:\n${d.focus}\n\n` +
   `Report concrete, actionable findings that are anchored in changed files/hunks from the diff. Be specific ` +
   `(file + line). Do NOT report pre-existing issues, base-only commits, harmless cleanup, minor style drift, ` +
