@@ -7,6 +7,23 @@ Portable pre-PR review loop skill and Claude Code-compatible dynamic workflow, r
 
 The workflow is compatible with Claude Code's dynamic workflow model. ODW runs that workflow from other agent harnesses; the examples and installer use the ODW CLI.
 
+## At a glance
+
+The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns through six independent dimensions:
+
+| Dimension | What it checks |
+| --- | --- |
+| Correctness | Logic, control flow, edge cases, AC compliance, ordering, and state consistency after partial failures |
+| Design | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, and material scope changes |
+| Error handling | Swallowed or over-broad failures, propagation, logging, operator context, and whether best-effort behavior is intentional |
+| Tests | AC coverage, meaningful assertions, realistic mocks, failure and boundary cases, and brittle coupling to internals |
+| Conventions | Repository instructions and nearby patterns for naming, placement, exports, comments, dead code, and maintainability |
+| Docs | Accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
+
+For each run, one reviewer examines each dimension in parallel. Separate verifier agents challenge every reported finding and discard false positives or out-of-scope issues. The workflow returns only confirmed, diff-anchored findings in structured output. The host agent fixes critical/important blockers, runs the repository checks, commits locally, then uses `verify-fixes` to recheck unresolved findings and scan the fix commits for regressions. The loop ends when no blockers or regressions remain.
+
+The workflow is read-only. The host skill owns branch safety, edits, tests, local commits, loop state, and final reporting.
+
 ## Key rule
 
 This workflow reviews a git diff. Reviewer agents must see `.git`.
@@ -29,7 +46,7 @@ git diff --name-only <base>...HEAD
 
 A skill can document the loop, but it cannot enforce the review topology. The workflow JS makes the review repeatable:
 
-- runs the same six independent review dimensions every time
+- runs the same [six independent review dimensions](#at-a-glance) every time
 - adversarially verifies each finding instead of trusting first-pass reviewer prose
 - returns stable fields (`confirmed[]`, `addressed[]`, `unresolved[]`, `regressions[]`) that the loop can act on
 - checks fix commits for regressions with `priorHead...head`
