@@ -7,9 +7,21 @@ description: Run an agent/harness-agnostic pre-PR review loop with the Claude Co
 
 Use the review-and-correct dynamic workflow as the reviewer; use your normal harness tools for edits/tests. In Claude Code, invoke it with the native workflow tool; in other harnesses, run it with ODW. The engine and its `args` are identical either way.
 
+## Fast path for ODW
+
+Use files, not inline JSON, for repeatable runs:
+
+```bash
+mkdir -p .tmp
+printf '%s\n' '{"workspaceMode":"inplace"}' > .tmp/odw-inplace-config.json
+odw run review-and-correct --wait --config .tmp/odw-inplace-config.json --source <repo> --args @.tmp/review-args.json
+```
+
+`review-args.json` needs `ticketKey`, explicit `base`, `head`, effective `ac`, optional `codegraphContext`, and `"mode":"review"`. For verify rounds, reuse the same command with `verify-args.json` containing the same fields plus `"mode":"verify-fixes"`, `priorHead`, and the current round's blocking `priorFindings`.
+
 ## Invariants
 
-- NEVER push, force-push, delete branches, or mutate remote state.
+- Within the review loop, NEVER push, force-push, delete branches, or mutate remote state. If the caller also asks to update a PR, push only after the loop is clean.
 - Abort on shared branches: `main`, `master`, `develop`, `trunk`, `release/*`.
 - Fetch/read acceptance criteria caller-side; pass AC text to the workflow. Do not make reviewer agents fetch Jira/GitHub.
 - Add concise session/user clarifications or approved deviations to the AC text before invoking the workflow. Treat those later instructions as authoritative over older AC/plan/docs, but preserve them in the final summary.
