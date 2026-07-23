@@ -50,8 +50,19 @@ const priorHead = (input && input.priorHead) || base
 // Optional pre-built context (e.g. `codegraph review`/`impact` output the caller already
 // gathered before invoking the workflow). When supplied, the Orient phase is skipped
 // entirely instead of re-deriving the same facts via an extra agent call.
-const callerContext = (input && input.codegraphContext) || ''
-const callerRiskHunks = Array.isArray(input && input.riskHunks) ? input.riskHunks : []
+// Only accept a real string (never coerce an object/number, which would render as
+// "[object Object]" in prompts) and trim so whitespace-only input is treated as absent.
+const callerContext = typeof (input && input.codegraphContext) === 'string' ? input.codegraphContext.trim() : ''
+// Drop malformed entries (null, non-object, missing/non-string `file`) up front so
+// packetSection() never has to defend against a shape mismatch -- reused below for
+// Orient's own model output too, since schema conformance there isn't guaranteed either.
+const sanitizeRiskHunks = (arr) =>
+  Array.isArray(arr)
+    ? arr
+        .filter((r) => r && typeof r === 'object' && typeof r.file === 'string')
+        .map((r) => ({ file: r.file, line: typeof r.line === 'string' ? r.line : '', reason: typeof r.reason === 'string' ? r.reason : '' }))
+    : []
+const callerRiskHunks = sanitizeRiskHunks(input && input.riskHunks)
 const mode = input && input.mode === 'verify-fixes' ? 'verify-fixes' : priorFindings.length ? 'verify-fixes' : 'review'
 
 // Three-dot: branch's own work since divergence from base. Two-dot would re-surface
@@ -301,14 +312,14 @@ const orientPrompt = (diff) =>
   `empty risk_hunks array.`
 
 const packetSection = (contextPacket, riskHunks) => {
-  if (!contextPacket && !(riskHunks && riskHunks.length)) return ''
-  const risk = (riskHunks || [])
-    .map((r) => `- \`${r.file}\`${r.line ? `:${r.line}` : ''} -- ${r.reason}`)
-    .join('\n')
+  const packet = typeof contextPacket === 'string' ? contextPacket.trim() : ''
+  const hunks = (riskHunks || []).filter((r) => r && typeof r === 'object' && typeof r.file === 'string')
+  if (!packet && !hunks.length) return ''
+  const risk = hunks.map((r) => `- \`${r.file}\`${r.line ? `:${r.line}` : ''} -- ${r.reason || ''}`).join('\n')
   return (
     `\n\nPre-built context packet (facts only; verify against the live diff/code rather than trusting it blindly, ` +
     `and go beyond it if it is incomplete -- but you should not need to re-derive callers/callees or doc context ` +
-    `from scratch):\n${contextPacket || '(empty)'}\n\n` +
+    `from scratch):\n${packet || '(empty)'}\n\n` +
     (risk
       ? `Hunks flagged as worth close scrutiny (concentrate reasoning here; hunks with no signal and no behavioral ` +
         `surface can be confirmed quickly):\n${risk}\n`
@@ -533,11 +544,11 @@ let contextPacket = callerContext
 let riskHunks = callerRiskHunks
 if (!contextPacket) {
   const orient = await agent(orientPrompt(DIFF), { label: 'orient', phase: 'Orient', schema: ORIENT_SCHEMA })
-  contextPacket = (orient && orient.packet) || ''
-  riskHunks = riskHunks.length ? riskHunks : (orient && orient.risk_hunks) || []
-  log(`${ticketKey}: context packet built (${contextPacket.length} chars), ${riskHunks.length} risk hunk(s) flagged`)
+  contextPacket = typeof (orient && orient.packet) === 'string' ? orient.packet.trim() : ''
+  riskHunks = riskHunks.length ? riskHunks : sanitizeRiskHunks(orient && orient.risk_hunks)
+  log(`${ticketKey}: context packet built (${String(contextPacket).length} chars), ${riskHunks.length} risk hunk(s) flagged`)
 } else {
-  log(`${ticketKey}: using caller-supplied context packet (${contextPacket.length} chars), ${riskHunks.length} risk hunk(s) -- Orient pass skipped`)
+  log(`${ticketKey}: using caller-supplied context packet (${String(contextPacket).length} chars), ${riskHunks.length} risk hunk(s) -- Orient pass skipped`)
 }
 
 if (mode === 'verify-fixes') {
