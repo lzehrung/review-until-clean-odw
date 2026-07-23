@@ -9,14 +9,14 @@ The workflow is compatible with Claude Code's dynamic workflow model. ODW runs t
 
 ## At a glance
 
-The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns across six sub-dimensions, grouped into two wide-scope reviewer passes so the diff and repo context are only re-read twice, not six times:
+The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns across six sub-dimensions, grouped into two wide-scope reviewer passes:
 
 | Group | Sub-dimensions | What it checks |
 | --- | --- | --- |
 | Behavior (runtime + tests) | Correctness, error handling, tests | Logic/control-flow bugs, AC compliance, ordering, state consistency after partial failures; swallowed or over-broad error handling, missing operator context in logs; AC coverage, meaningful assertions, failure/boundary cases |
 | Structure (design + docs) | Design, conventions, docs | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, material scope changes; repo naming/placement/export/comment conventions; accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
 
-Before either reviewer runs, one Orient pass builds a single shared context packet -- diff summary, each touched symbol's callers/callees (via the codegraph CLI/MCP when available, else grep/lsp), relevant doc excerpts, and a ranked list of semantically dense "risk hunks" (guards that skip a call, computed-but-unused values, changed thresholds/timing, replication/concurrency-sensitive edits). That packet is inlined into every review, verify, and re-verify prompt so reviewers stop re-deriving the same facts (call sites, related fields, doc claims) independently -- and so they concentrate reasoning on the flagged risk hunks instead of spreading it evenly across the diff. If the caller already ran `codegraph review`/`impact` before invoking the workflow, it can pass that output as `codegraphContext` (+ optional `riskHunks`) and the Orient pass is skipped entirely.
+Before either reviewer runs, one Orient pass builds a single shared context packet -- diff summary, each touched symbol's callers/callees (via the codegraph CLI/MCP when available, else grep/lsp), relevant doc excerpts, and a ranked list of semantically dense "risk hunks" (guards that skip a call, computed-but-unused values, changed thresholds/timing, replication/concurrency-sensitive edits). That packet is inlined into every review, verify, and re-verify prompt so reviewers don't need to re-derive the same facts (call sites, related fields, doc claims), and so they concentrate reasoning on the flagged risk hunks rather than spreading it evenly across the diff. If the caller already ran `codegraph review`/`impact` before invoking the workflow, it can pass that output as `codegraphContext` (+ optional `riskHunks`) and the Orient pass is skipped entirely.
 
 Codegraph is optional. Nothing in this repo requires it to be installed: the Orient pass checks whether the `codegraph` CLI or MCP tools are available and uses them for a faster, more complete callers/callees map when they are; if they aren't, it falls back to plain `git diff` plus grep/lsp/read and does its best to reconstruct the same dependency picture by hand. The workflow never installs codegraph or fails a review because it's missing.
 
@@ -46,8 +46,8 @@ git diff --name-only <base>...HEAD
 
 A skill can document the loop, but it cannot enforce the review topology. The workflow JS makes the review repeatable:
 
-- builds one shared context packet up front ([Orient](#at-a-glance)) instead of letting each reviewer re-derive it
-- runs the same [two wide-scope review groups](#at-a-glance) every time instead of one agent per sub-dimension
+- builds one shared context packet up front ([Orient](#at-a-glance)) so reviewers don't re-derive it
+- runs the same [two wide-scope review groups](#at-a-glance) every time
 - adversarially verifies each finding instead of trusting first-pass reviewer prose
 - returns stable fields (`confirmed[]`, `addressed[]`, `unresolved[]`, `regressions[]`) that the loop can act on
 - checks fix commits for regressions with `priorHead...head`
