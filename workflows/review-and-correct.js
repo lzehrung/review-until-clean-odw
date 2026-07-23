@@ -211,6 +211,20 @@ const groupFocus = (g) => g.dims.map((k) => `### ${k}\n${dim(k).focus}`).join('\
 
 const rank = { critical: 0, important: 1, minor: 2 }
 
+// Cheap probe used only to decide whether the Regression sweep is worth running.
+// `priorHead`/`head` can be a SHA, a ref like "HEAD", or a branch name, so a plain
+// string comparison misses the common case where they resolve to the same commit
+// (e.g. priorHead is a resolved SHA and head is the literal ref "HEAD") -- ask an
+// agent to check the actual diff instead of guessing from the ref strings.
+const EMPTY_DIFF_SCHEMA = {
+  type: 'object',
+  properties: { empty: { type: 'boolean', description: 'true if the diff has zero changed paths' } },
+  required: ['empty'],
+}
+const emptyDiffPrompt = (diff) =>
+  `Run \`git diff --name-only ${diff}\` (three dots). Do not modify files. Report only whether that command ` +
+  `printed any output -- true if it printed nothing (no changed paths), false if it printed at least one path.`
+
 // --- Orient: one shared context packet, built once, reused by every reviewer/verifier. ---
 // Reviewers previously each re-derived the same facts (call sites, related fields, doc
 // claims) independently. This single pass gathers them once; its output is inlined into
@@ -380,7 +394,7 @@ async function runReview(groups, diff, reviewPhase, verifyPhase, contextPacket, 
       parallel(
         (result.findings || []).map((f) => () =>
           agent(verifyPrompt(f, diff, contextPacket, riskHunks), { label: `verify:${g.key}:${f.file}`, phase: verifyPhase, schema: VERDICT_SCHEMA })
-            .then((v) => ({ ...f, dimension: f.dimension || g.key, verdict: v }))
+            .then((v) => ({ ...f, verdict: v }))
         )
       )
   )
@@ -536,13 +550,17 @@ if (mode === 'verify-fixes') {
   // Scope the regression review to the fix commits (priorHead...head) so we hunt for
   // newly-introduced issues, not re-litigate the whole branch -- this is the "only
   // review what changed since the last verdict" scoping: unchanged hunks from earlier
-  // rounds are never re-reviewed. If the fix round produced no new commits (priorHead
-  // === head, e.g. a re-verify retry with nothing to sweep), skip the sweep entirely.
+  // rounds are never re-reviewed. A cheap probe decides whether the fix round produced
+  // any new commits at all (ref-string equality is unreliable: priorHead is typically a
+  // resolved SHA while head is often the literal ref "HEAD" or a branch name, so they
+  // rarely compare equal even when they resolve to the same commit).
   const regrDiff = `${priorHead}...${head}`
+  const probe = await agent(emptyDiffPrompt(regrDiff), { label: 'regression-probe', phase: 'Regression', schema: EMPTY_DIFF_SCHEMA })
   const regr =
-    priorHead === head
+    probe && probe.empty
       ? { confirmed: [] }
       : await runReview(GROUPS, regrDiff, 'Regression', 'Regression', contextPacket, riskHunks)
+  if (probe && probe.empty) log(`${ticketKey}: no new commits in ${regrDiff} -- regression sweep skipped`)
   const regressions = regr.confirmed
 
   log(
