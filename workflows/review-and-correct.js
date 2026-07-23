@@ -218,12 +218,20 @@ const rank = { critical: 0, important: 1, minor: 2 }
 // agent to check the actual diff instead of guessing from the ref strings.
 const EMPTY_DIFF_SCHEMA = {
   type: 'object',
-  properties: { empty: { type: 'boolean', description: 'true if the diff has zero changed paths' } },
+  properties: {
+    empty: {
+      type: 'boolean',
+      description: 'set to true ONLY if the command exited 0 AND printed zero paths; false in every other case, including any failure',
+    },
+  },
   required: ['empty'],
 }
 const emptyDiffPrompt = (diff) =>
-  `Run \`git diff --name-only ${diff}\` (three dots). Do not modify files. Report only whether that command ` +
-  `printed any output -- true if it printed nothing (no changed paths), false if it printed at least one path.`
+  `Run \`git diff --name-only ${diff}\` (three dots). Do not modify files.\n\n` +
+  `Set the \`empty\` field to true ONLY if that command exited 0 (success) AND printed no paths on stdout. ` +
+  `Set \`empty\` to false in every other case: at least one changed path, a non-zero exit code, an unresolvable ` +
+  `ref, or any other git failure. When in doubt, set \`empty\` to false -- a false negative here just means the ` +
+  `full regression review runs; a false positive would silently skip it.`
 
 // --- Orient: one shared context packet, built once, reused by every reviewer/verifier. ---
 // Reviewers previously each re-derived the same facts (call sites, related fields, doc
