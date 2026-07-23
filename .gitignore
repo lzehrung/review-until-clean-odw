@@ -1,0 +1,8 @@
+node_modules/
+.tmp/
+$env
+
+# Scratch artifacts occasionally left behind by reviewer subagents during a
+# review-and-correct run (codegraph cache, ad-hoc diff dumps).
+.codegraph-cache/
+.review-diff-*.txt
