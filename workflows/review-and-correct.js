@@ -59,11 +59,11 @@ const mode = input && input.mode === 'verify-fixes' ? 'verify-fixes' : priorFind
 // out by hand before).
 const DIFF = `${base}...${head}`
 
-// One findings schema per invocation, parameterized by the sub-dimensions in play
-// (a review group's members, or the full DIMENSIONS list for the regression sweep).
-// Each finding self-tags its `dimension` -- required because one reviewer now covers
-// several sub-dimensions in a single pass; reporting/clustering still needs the
-// finer-grained tag.
+// One findings schema per invocation, parameterized by the sub-dimensions in play --
+// a review group's members. Both the main Review pass and the Regression sweep call
+// this with a group's `dims`, never the full DIMENSIONS key list. Each finding
+// self-tags its `dimension` -- required because one reviewer now covers several
+// sub-dimensions in a single pass; reporting/clustering still needs the finer-grained tag.
 const findingsSchema = (dimKeys) => ({
   type: 'object',
   properties: {
@@ -145,10 +145,9 @@ const RESOLVED_SCHEMA = {
   required: ['current_evidence', 'evidence_type', 'resolved', 'regressed', 'reasoning'],
 }
 
-// Canonical sub-dimensions. Kept fine-grained for reporting/clustering and for the
-// regression sweep; REVIEW/RE-REVIEW passes cover them via the two wide GROUPS below
-// rather than one reviewer agent per dimension, so a diff gets 2 fresh-context reads
-// instead of 6.
+// Canonical sub-dimensions, kept fine-grained for self-tagging, reporting, and
+// clustering. Review and Regression both fan out over the two wide GROUPS below,
+// not this list directly -- each group's `dims` is a subset of these keys.
 const DIMENSIONS = [
   {
     key: 'correctness',
@@ -321,7 +320,7 @@ const reviewPrompt = (g, diff, contextPacket, riskHunks) =>
   `or acceptance-criteria work absent from an empty diff. If the change is clean on every sub-dimension above, ` +
   `return an empty findings array.`
 
-const verifyPrompt = (f, diff, contextPacket) =>
+const verifyPrompt = (f, diff, contextPacket, riskHunks) =>
   `Adversarially verify this code-review finding against ticket ${ticketKey}. Default to refuting it: a ` +
   `finding survives only if it is a genuine defect in the diff ${diff} AND fixing it is in scope ` +
   `for this ticket.\n\n` +
@@ -329,7 +328,7 @@ const verifyPrompt = (f, diff, contextPacket) =>
   `Suggested fix: ${f.suggested_fix}\n` +
   (f.verify_command ? `Suggested verify command: \`${f.verify_command}\`\n` : '') +
   `\nAcceptance criteria (including any user/session clarifications or approved deviations):\n${ac}\n` +
-  packetSection(contextPacket) +
+  packetSection(contextPacket, riskHunks) +
   `\nInspect the actual diff first: run \`git diff --name-only ${diff}\` and \`git diff ${diff}\`. Do not modify ` +
   `files. If a verify_command was suggested (or an equivalent fast test/build/repro exists) and it is safe and ` +
   `cheap to run, RUN it and ground your verdict in its output -- set evidence_type='execution' and quote the ` +
@@ -347,14 +346,14 @@ const verifyPrompt = (f, diff, contextPacket) =>
 // confirming an already-fixed finding. The verdict must be grounded in a verbatim quote of the
 // CURRENT code (RESOLVED_SCHEMA.current_evidence), and the default is RESOLVED unless the original
 // defect can be pointed to in that quote.
-const reverifyPrompt = (f, contextPacket) =>
+const reverifyPrompt = (f, contextPacket, riskHunks) =>
   `A prior review of ${ticketKey} flagged a ${f.dimension || 'code'} issue in \`${f.file}\` titled "${f.title}". ` +
   `Fixes have since been committed. Determine, FROM THE CURRENT CODE ONLY, whether that issue still exists.\n\n` +
   `Do NOT trust the prior finding's description, suggested fix, or line numbers -- the line numbers have SHIFTED ` +
   `under the fix commit, so re-locate the relevant code by SYMBOL / function name / content, never by line number. ` +
   `Treat the title as a hint about WHERE to look, not as evidence of the current state.\n` +
   (f.verify_command ? `The original finding suggested this verify command: \`${f.verify_command}\`.\n` : '') +
-  packetSection(contextPacket) +
+  packetSection(contextPacket, riskHunks) +
   `\nSteps:\n` +
   `1. Run \`git diff ${DIFF} -- ${f.file}\` and read the current \`${f.file}\` to see the post-fix code.\n` +
   `2. Re-locate the code the finding was about (by symbol/content).\n` +
@@ -380,7 +379,7 @@ async function runReview(groups, diff, reviewPhase, verifyPhase, contextPacket, 
     (result, g) =>
       parallel(
         (result.findings || []).map((f) => () =>
-          agent(verifyPrompt(f, diff, contextPacket), { label: `verify:${g.key}:${f.file}`, phase: verifyPhase, schema: VERDICT_SCHEMA })
+          agent(verifyPrompt(f, diff, contextPacket, riskHunks), { label: `verify:${g.key}:${f.file}`, phase: verifyPhase, schema: VERDICT_SCHEMA })
             .then((v) => ({ ...f, dimension: f.dimension || g.key, verdict: v }))
         )
       )
@@ -524,7 +523,7 @@ if (mode === 'verify-fixes') {
   const rechecked = (
     await parallel(
       priorFindings.map((f) => () =>
-        agent(reverifyPrompt(f, contextPacket), { label: `recheck:${f.file}`, phase: 'Re-verify', schema: RESOLVED_SCHEMA })
+        agent(reverifyPrompt(f, contextPacket, riskHunks), { label: `recheck:${f.file}`, phase: 'Re-verify', schema: RESOLVED_SCHEMA })
           .then((v) => ({ ...f, resolution: v }))
       )
     )
