@@ -59,8 +59,12 @@ const callerContext = typeof (input && input.codegraphContext) === 'string' ? in
 const sanitizeRiskHunks = (arr) =>
   Array.isArray(arr)
     ? arr
-        .filter((r) => r && typeof r === 'object' && typeof r.file === 'string')
-        .map((r) => ({ file: r.file, line: typeof r.line === 'string' ? r.line : '', reason: typeof r.reason === 'string' ? r.reason : '' }))
+        .filter((r) => r && typeof r === 'object' && typeof r.file === 'string' && r.file.trim())
+        .map((r) => ({
+          file: r.file.trim(),
+          line: typeof r.line === 'string' ? r.line : typeof r.line === 'number' && Number.isFinite(r.line) ? String(r.line) : '',
+          reason: typeof r.reason === 'string' ? r.reason : '',
+        }))
     : []
 const callerRiskHunks = sanitizeRiskHunks(input && input.riskHunks)
 const mode = input && input.mode === 'verify-fixes' ? 'verify-fixes' : priorFindings.length ? 'verify-fixes' : 'review'
@@ -201,7 +205,11 @@ const DIMENSIONS = [
       'commands against the real code (read the referenced source). Flag anything that would mislead an operator.',
   },
 ]
-const dim = (key) => DIMENSIONS.find((d) => d.key === key)
+const dim = (key) => {
+  const d = DIMENSIONS.find((d) => d.key === key)
+  if (!d) throw new Error(`groupFocus: '${key}' is not a key in DIMENSIONS -- check GROUPS[].dims for a typo or a stale key after a DIMENSIONS edit`)
+  return d
+}
 
 // Two wide-scope reviewers instead of one-per-dimension. Each still owns independent
 // judgment over its members (no single verdict is diluted), but the diff and repo
