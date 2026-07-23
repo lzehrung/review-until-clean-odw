@@ -9,18 +9,18 @@ The workflow is compatible with Claude Code's dynamic workflow model. ODW runs t
 
 ## At a glance
 
-The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns through six independent dimensions:
+The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns across six sub-dimensions, grouped into two wide-scope reviewer passes so the diff and repo context are only re-read twice, not six times:
 
-| Dimension | What it checks |
-| --- | --- |
-| Correctness | Logic, control flow, edge cases, AC compliance, ordering, and state consistency after partial failures |
-| Design | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, and material scope changes |
-| Error handling | Swallowed or over-broad failures, propagation, logging, operator context, and whether best-effort behavior is intentional |
-| Tests | AC coverage, meaningful assertions, realistic mocks, failure and boundary cases, and brittle coupling to internals |
-| Conventions | Repository instructions and nearby patterns for naming, placement, exports, comments, dead code, and maintainability |
-| Docs | Accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
+| Group | Sub-dimensions | What it checks |
+| --- | --- | --- |
+| Behavior (runtime + tests) | Correctness, error handling, tests | Logic/control-flow bugs, AC compliance, ordering, state consistency after partial failures; swallowed or over-broad error handling, missing operator context in logs; AC coverage, meaningful assertions, failure/boundary cases |
+| Structure (design + docs) | Design, conventions, docs | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, material scope changes; repo naming/placement/export/comment conventions; accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
 
-For each run, one reviewer examines each dimension in parallel. Separate verifier agents challenge every reported finding and discard false positives or out-of-scope issues. The workflow returns only confirmed, diff-anchored findings in structured output. The host agent fixes critical/important blockers, runs the repository checks, commits locally, then uses `verify-fixes` to recheck unresolved findings and scan the fix commits for regressions. The loop ends when no blockers or regressions remain.
+Before either reviewer runs, one Orient pass builds a single shared context packet -- diff summary, each touched symbol's callers/callees (via the codegraph CLI/MCP when available, else grep/lsp), relevant doc excerpts, and a ranked list of semantically dense "risk hunks" (guards that skip a call, computed-but-unused values, changed thresholds/timing, replication/concurrency-sensitive edits). That packet is inlined into every review, verify, and re-verify prompt so reviewers stop re-deriving the same facts (call sites, related fields, doc claims) independently -- and so they concentrate reasoning on the flagged risk hunks instead of spreading it evenly across the diff. If the caller already ran `codegraph review`/`impact` before invoking the workflow, it can pass that output as `codegraphContext` (+ optional `riskHunks`) and the Orient pass is skipped entirely.
+
+Codegraph is optional. Nothing in this repo requires it to be installed: the Orient pass checks whether the `codegraph` CLI or MCP tools are available and uses them for a faster, more complete callers/callees map when they are; if they aren't, it falls back to plain `git diff` plus grep/lsp/read and does its best to reconstruct the same dependency picture by hand. The workflow never installs codegraph or fails a review because it's missing.
+
+Each of the two reviewers runs independently in parallel; separate verifier agents challenge every reported finding (preferring to actually run a suggested `verify_command` over speculating about behavioral claims) and discard false positives or out-of-scope issues. The workflow returns only confirmed, diff-anchored findings in structured output. The host agent fixes critical/important blockers, runs the repository checks, commits locally, then uses `verify-fixes` to recheck unresolved findings and scan only the fix commits (`priorHead...head`) for regressions -- unchanged hunks from earlier rounds are never re-reviewed. The loop ends when no blockers or regressions remain.
 
 The workflow is read-only. The host skill owns branch safety, edits, tests, local commits, loop state, and final reporting.
 
@@ -46,7 +46,8 @@ git diff --name-only <base>...HEAD
 
 A skill can document the loop, but it cannot enforce the review topology. The workflow JS makes the review repeatable:
 
-- runs the same [six independent review dimensions](#at-a-glance) every time
+- builds one shared context packet up front ([Orient](#at-a-glance)) instead of letting each reviewer re-derive it
+- runs the same [two wide-scope review groups](#at-a-glance) every time instead of one agent per sub-dimension
 - adversarially verifies each finding instead of trusting first-pass reviewer prose
 - returns stable fields (`confirmed[]`, `addressed[]`, `unresolved[]`, `regressions[]`) that the loop can act on
 - checks fix commits for regressions with `priorHead...head`
@@ -63,10 +64,11 @@ Two skills would document the same intent, but the orchestrating agent would hav
 
 ```mermaid
 flowchart TB
-  S[Begin multi-agent/dimension review] --> A[Gather AC + session clarifications]
+  S[Begin review] --> A[Gather AC + session clarifications]
   A --> B[Preflight: safe branch, base, non-empty diff, baseline green]
-  B --> C[Workflow review: 6 independent dimensions]
-  C --> D[Adversarially verify each finding]
+  B --> C[Orient: shared context packet + risk hunks]
+  C --> C2[Workflow review: 2 wide-scope groups, seeded with the packet]
+  C2 --> D[Adversarially verify each finding; run verify_command when behavioral]
   D --> E{Critical/important blockers?}
   E -- No --> Z[Final compact ledger summary]
   E -- Direct AC contradiction --> H[Ask user: source says vs implementation does]

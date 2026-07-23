@@ -17,7 +17,7 @@ printf '%s\n' '{"workspaceMode":"inplace"}' > .tmp/odw-inplace-config.json
 odw run review-and-correct --wait --config .tmp/odw-inplace-config.json --source <repo> --args @.tmp/review-args.json
 ```
 
-`review-args.json` needs `ticketKey`, explicit `base`, `head`, effective `ac`, optional `codegraphContext`, and `"mode":"review"`. For verify rounds, reuse the same command with `verify-args.json` containing the same fields plus `"mode":"verify-fixes"`, `priorHead`, and the current round's blocking `priorFindings`.
+`review-args.json` needs `ticketKey`, explicit `base`, `head`, effective `ac`, and `"mode":"review"`. Codegraph is optional: if it's already installed and you already ran `codegraph review`/`codegraph impact` for this range (see the codegraph skill), pass its output as `codegraphContext` (and any dense/risky hunks you noticed as `riskHunks: [{file, line?, reason}]`) -- the workflow's Orient pass is skipped entirely when supplied, saving a redundant context-gathering agent call. If codegraph isn't installed, or you haven't run it, omit both fields; the workflow's own Orient pass checks for codegraph itself and falls back to `git diff` + grep/lsp when it's unavailable -- never install it on the caller's behalf just to satisfy this workflow. For verify rounds, reuse the same command with `verify-args.json` containing the same fields plus `"mode":"verify-fixes"`, `priorHead`, and the current round's blocking `priorFindings`.
 
 ## Invariants
 
@@ -31,6 +31,8 @@ odw run review-and-correct --wait --config .tmp/odw-inplace-config.json --source
 - If `git diff --name-only <base>...HEAD` is empty, stop: there are no branch changes to review. Do not review base-only commits from a branch that is behind base.
 - Start only from a known-good baseline: run the repo's build/lint/tests first. If unknown, inspect package/config docs; ask only if still ambiguous.
 - Critical/important findings block. Minor findings are reported, not loop-forcing.
+- For behavioral findings (thresholds, tolerances, timing, replication, concurrency), prefer re-running the concrete gate/test the finding names (`verify_command`, or the project's own test/build) over trusting reviewer reasoning; the workflow's verify/re-verify prompts already push reviewers to execute rather than speculate, but you MUST also re-run the repo's build/lint/tests after every fix round regardless of what a reviewer claims.
+- Codegraph (CLI/MCP) is an optional accelerant for the Orient pass, never a requirement: use it if it's already available, but do not install it, prompt the user to install it, or block/fail the review because it's missing.
 
 ## Review command
 
