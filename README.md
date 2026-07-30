@@ -2,25 +2,27 @@
 
 Portable pre-PR review loop skill and Claude Code-compatible dynamic workflow, runnable in Claude Code and via [Open Dynamic Workflows (ODW)](https://github.com/xz1220/open-dynamic-workflows) for other harnesses.
 
-- `workflows/review-and-correct.js` is the executable Claude Code-compatible review workflow: fan out independent reviewers, adversarially verify findings, sweep fix regressions, and return structured JSON + concise markdown.
-- `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, run the workflow, fix with native tools, test, local commit, verify fixes, carry a compact ledger, and report the final result.
+- `workflows/review-and-correct.js` is the executable Claude Code-compatible workflow: exactly two independent reviewers each review and adversarially verify one wide concern group, then return structured JSON and concise markdown.
+- `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, workflow invocation, fixes, tests, local commits, compact loop state, and final reporting.
 
-The workflow is compatible with Claude Code's dynamic workflow model. ODW runs that workflow from other agent harnesses; the examples and installer use the ODW CLI.
+Use the native `Workflow` tool when the host session is Claude Code. A `claude` executable on another harness does not expose that tool to the host; use ODW as the compatibility runner and select the local Claude adapter explicitly.
 
 ## At a glance
 
 The workflow reviews the branch diff against the effective acceptance criteria and local repository patterns across six sub-dimensions, grouped into two wide-scope reviewer passes:
 
-| Group | Sub-dimensions | What it checks |
-| --- | --- | --- |
-| Behavior (runtime + tests) | Correctness, error handling, tests | Logic/control-flow bugs, AC compliance, ordering, state consistency after partial failures; swallowed or over-broad error handling, missing operator context in logs; AC coverage, meaningful assertions, failure/boundary cases |
-| Structure (design + docs) | Design, conventions, docs | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, material scope changes; repo naming/placement/export/comment conventions; accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
+| Group                      | Sub-dimensions                     | What it checks                                                                                                                                                                                                                                                                 |
+| -------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Behavior (runtime + tests) | Correctness, error handling, tests | Logic/control-flow bugs, AC compliance, ordering, state consistency after partial failures; swallowed or over-broad error handling, missing operator context in logs; AC coverage, meaningful assertions, failure/boundary cases                                               |
+| Structure (design + docs)  | Design, conventions, docs          | Architecture, ownership, data flow, boundaries, reuse of existing mechanisms, lifecycle/API contracts, material scope changes; repo naming/placement/export/comment conventions; accuracy of touched docs, runbooks, comments, commands, paths, and referenced schemas or data |
 
-Before either reviewer runs, one Orient pass builds a single shared context packet -- diff summary, each touched symbol's callers/callees (via the codegraph CLI/MCP when available, else grep/lsp), relevant doc excerpts, and a ranked list of semantically dense "risk hunks" (guards that skip a call, computed-but-unused values, changed thresholds/timing, replication/concurrency-sensitive edits). That packet is inlined into every review, verify, and re-verify prompt so reviewers don't need to re-derive the same facts (call sites, related fields, doc claims), and so they concentrate reasoning on the flagged risk hunks rather than spreading it evenly across the diff. If the caller already ran `codegraph review`/`impact` before invoking the workflow, it can pass that output as `codegraphContext` (+ optional `riskHunks`) and the Orient pass is skipped entirely.
+Caller-supplied `codegraphContext` and `riskHunks` are optional accelerants. When omitted, both reviewers derive the context needed for their own concern group from the live diff; the workflow does not spawn a separate Orient agent.
 
-Codegraph is optional. Nothing in this repo requires it to be installed: the Orient pass checks whether the `codegraph` CLI or MCP tools are available and uses them for a faster, more complete callers/callees map when they are; if they aren't, it falls back to plain `git diff` plus grep/lsp/read and does its best to reconstruct the same dependency picture by hand. The workflow never installs codegraph or fails a review because it's missing.
+Exactly two reviewer agents run independently in parallel. Each reviewer generates candidates, adversarially challenges them against the diff and acceptance criteria, runs cheap behavioral verification when safe, and returns candidate verdicts from that same session. Review mode therefore makes exactly two `agent()` calls rather than two reviewers plus one verifier per finding.
 
-Each of the two reviewers runs independently in parallel; separate verifier agents challenge every reported finding (preferring to actually run a suggested `verify_command` over speculating about behavioral claims) and discard false positives or out-of-scope issues. The workflow returns only confirmed, diff-anchored findings in structured output. The host agent fixes critical/important blockers, runs the repository checks, commits locally, then uses `verify-fixes` to recheck unresolved findings and scan only the fix commits (`priorHead...head`) for regressions -- unchanged hunks from earlier rounds are never re-reviewed. The loop ends when no blockers or regressions remain.
+If either reviewer fails or returns an invalid result, the workflow fails instead of reporting a false clean review.
+
+In `verify-fixes` mode, the same two groups each recheck their assigned prior findings and review `priorHead...head` for regressions in one session. The host agent fixes critical/important blockers, runs repository checks, commits locally, and repeats until no blockers or regressions remain.
 
 The workflow is read-only. The host skill owns branch safety, edits, tests, local commits, loop state, and final reporting.
 
@@ -46,12 +48,12 @@ git diff --name-only <base>...HEAD
 
 A skill can document the loop, but it cannot enforce the review topology. The workflow JS makes the review repeatable:
 
-- builds one shared context packet up front ([Orient](#at-a-glance)) so reviewers don't re-derive it
-- runs the same [two wide-scope review groups](#at-a-glance) every time
-- adversarially verifies each finding instead of trusting first-pass reviewer prose
+- runs exactly two wide-scope reviewer agents per invocation
+- has each reviewer adversarially verify its own candidates instead of spawning per-finding verifier agents
+- rechecks prior findings and scans fix regressions within the same two group sessions
+- accepts optional caller-built context without requiring Codegraph or a separate Orient session
 - returns stable fields (`confirmed[]`, `addressed[]`, `unresolved[]`, `regressions[]`) that the loop can act on
-- checks fix commits for regressions with `priorHead...head`
-- keeps reviewer transcripts out of the host agent context; the host carries only current blockers plus a compact ledger
+- keeps reviewer transcripts out of the host context; the host carries current blockers plus a compact ledger
 
 The split is intentional:
 
@@ -66,9 +68,8 @@ Two skills would document the same intent, but the orchestrating agent would hav
 flowchart TB
   S[Begin review] --> A[Gather AC + session clarifications]
   A --> B[Preflight: safe branch, base, non-empty diff, baseline green]
-  B --> C[Orient: shared context packet + risk hunks]
-  C --> C2[Workflow review: 2 wide-scope groups, seeded with the packet]
-  C2 --> D[Adversarially verify each finding; run verify_command when behavioral]
+  B --> C[Optional caller context + risk hunks]
+  C --> D[Exactly 2 self-verifying group reviewers]
   D --> E{Critical/important blockers?}
   E -- No --> Z[Final compact ledger summary]
   E -- Direct AC contradiction --> H[Ask user: source says vs implementation does]
@@ -148,7 +149,7 @@ Workflow({
 })
 ```
 
-`~/.claude/workflows/` is not scanned by the named-workflow registry, so invoke by `scriptPath`, not by name. Reviewer agents run `git diff` in the real working tree, so no extra config is needed.
+`~/.claude/workflows/` is not scanned by the named-workflow registry, so invoke by `scriptPath`, not by name. This native path applies when the active host is Claude Code; merely having `claude` on PATH in another harness does not make its `Workflow` tool directly callable.
 
 ### ODW (other harnesses)
 
@@ -156,6 +157,7 @@ Prefer `--args @file.json` for multiline AC.
 
 ```bash
 odw run review-and-correct \
+  --adapter claude \
   --wait \
   --config odw-inplace-config.json \
   --source /path/to/repo \
@@ -181,7 +183,7 @@ Loop policy:
 1. Feature branch only. Never push.
 2. Non-empty `<base>...HEAD` diff only.
 3. Baseline build/lint/tests green.
-4. Run the workflow review: Claude Code via the workflow tool, or ODW with `workspaceMode: "inplace"`.
+4. Run the workflow review: use Claude Code's native `Workflow` tool from a Claude Code host, or ODW with `workspaceMode: "inplace"` and an explicit adapter from other harnesses.
 5. Fix critical/important findings only; minors do not force another round.
 6. Run verification, commit locally once per round.
 7. Re-run with `mode: "verify-fixes"`, current round blockers as `priorFindings`, and pre-fix HEAD.
@@ -209,3 +211,13 @@ report         concise markdown summary
 ```
 
 Findings are expected to be anchored to changed files/hunks. The workflow reviews an empty diff as clean.
+
+## Validation
+
+Run the deterministic topology regression without launching an agent:
+
+```bash
+node scripts/test-workflow.mjs
+```
+
+It executes both workflow modes with a stub adapter and fails unless each mode makes exactly the two expected group-agent calls.
