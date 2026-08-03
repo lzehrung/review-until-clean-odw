@@ -101,7 +101,7 @@ Write `verify-args.json` containing the same fields plus `priorFindings` set to 
 Then re-run the same engine in verify-fixes mode:
 
 - **Claude Code:** `Workflow({ scriptPath: "<install path>/review-and-correct.js", args: { ...same fields, mode: "verify-fixes", priorFindings, priorHead } })`
-- **ODW:** `odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json`
+- **ODW:** `odw run review-and-correct --wait --adapter claude --config <odw-inplace-config.json> --source <repo> --args @verify-args.json`
 
 11. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
 12. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.

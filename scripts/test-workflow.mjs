@@ -128,6 +128,111 @@ await assert.rejects(
   /Fix verification incomplete: expected 2 valid reviewer results/,
 );
 
+await assert.rejects(
+  runWorkflow(
+    {
+      ticketKey: "TEST",
+      base: "origin/main",
+      head: "HEAD",
+      ac: "Test acceptance criteria",
+      mode: "review",
+    },
+    async (_prompt, options) => ({
+      findings:
+        options.label === "review:behavior"
+          ? [
+              {
+                severity: "critical",
+                dimension: "correctness",
+                file: "src/a.js",
+                title: "Missing verdict",
+                detail: "A reviewer returned a finding without a verdict.",
+                suggested_fix: "n/a",
+                verify_command: "",
+                // verdict intentionally omitted -- must fail closed, not be silently dropped.
+              },
+            ]
+          : [],
+    }),
+    parallel,
+    noop,
+    noop,
+  ),
+  /Review incomplete: 1 finding\(s\) missing a valid verdict/,
+);
+
+await assert.rejects(
+  runWorkflow(
+    {
+      ticketKey: "TEST",
+      base: "origin/main",
+      head: "HEAD",
+      ac: "Test acceptance criteria",
+      mode: "verify-fixes",
+      priorHead: "before-fixes",
+      priorFindings,
+    },
+    // A lane that never recheck's its assigned index must fail closed rather than
+    // let the missing index silently default to "still open".
+    async () => ({ rechecked: [], findings: [] }),
+    parallel,
+    noop,
+    noop,
+  ),
+  /Fix verification incomplete: missing recheck result\(s\) for prior finding index/,
+);
+
+await assert.rejects(
+  runWorkflow(
+    {
+      ticketKey: "TEST",
+      base: "origin/main",
+      head: "HEAD",
+      ac: "Test acceptance criteria",
+      mode: "verify-fixes",
+      priorHead: "before-fixes",
+      priorFindings,
+    },
+    async (prompt, options) => {
+      const indexes = [...prompt.matchAll(/"index": (\d+)/g)].map((match) =>
+        Number(match[1]),
+      );
+      return {
+        rechecked: indexes.map((index) => ({
+          index,
+          resolution: {
+            current_evidence: "fixed",
+            evidence_type: "code-reading",
+            resolved: true,
+            regressed: false,
+            reasoning: "The defect is absent.",
+          },
+        })),
+        findings:
+          options.label === "verify:behavior"
+            ? [
+                {
+                  severity: "important",
+                  dimension: "correctness",
+                  file: "src/a.js",
+                  title: "Missing verdict on a regression candidate",
+                  detail:
+                    "A regression candidate was returned without a verdict.",
+                  suggested_fix: "n/a",
+                  verify_command: "",
+                  // verdict intentionally omitted -- must fail closed, not be silently dropped.
+                },
+              ]
+            : [],
+      };
+    },
+    parallel,
+    noop,
+    noop,
+  ),
+  /Fix verification incomplete: 1 regression candidate\(s\) missing a valid verdict/,
+);
+
 console.log(
   "Workflow topology passed: exactly two agents in review and verify-fixes modes.",
 );

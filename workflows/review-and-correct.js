@@ -260,6 +260,11 @@ const GROUPS = [
 const groupFocus = (g) => g.dims.map((k) => `### ${k}\n${dim(k).focus}`).join('\n\n')
 
 const rank = { critical: 0, important: 1, minor: 2 }
+// A finding with no (or malformed) verdict is NOT the same as a verified false
+// positive -- treating it as one would let a broken/incomplete reviewer response
+// produce a false-clean result. Shared by the Review pass and the verify-fixes
+// regression sweep so both fail closed on the same shape.
+const isValidVerdict = (v) => v && typeof v.real === 'boolean' && typeof v.in_scope === 'boolean' && typeof v.severity === 'string'
 
 
 const packetSection = (contextPacket, riskHunks) => {
@@ -345,11 +350,20 @@ async function runReview(groups, diff, reviewPhase, contextPacket, riskHunks) {
     throw new Error(`Review incomplete: expected ${groups.length} valid reviewer results`)
   }
   const all = reviewed.flatMap((result) => (result && result.findings) || []).filter(Boolean)
+  const malformed = all.filter((f) => !isValidVerdict(f.verdict))
+  if (malformed.length) {
+    // A finding with no (or malformed) verdict is NOT the same as a verified false
+    // positive -- silently treating it as "dropped" would let a broken/incomplete
+    // reviewer response produce a false-clean result. Fail closed instead.
+    throw new Error(
+      `Review incomplete: ${malformed.length} finding(s) missing a valid verdict (${malformed.map((f) => f.title || f.file).join(', ')})`
+    )
+  }
   const confirmed = all
-    .filter((f) => f.verdict && f.verdict.real && f.verdict.in_scope)
+    .filter((f) => f.verdict.real && f.verdict.in_scope)
     .map((f) => ({ ...f, severity: f.verdict.severity }))
   confirmed.sort((a, b) => rank[a.severity] - rank[b.severity])
-  const dropped = all.filter((f) => !(f.verdict && f.verdict.real && f.verdict.in_scope))
+  const dropped = all.filter((f) => !(f.verdict.real && f.verdict.in_scope))
   return { all, confirmed, dropped }
 }
 
@@ -500,11 +514,21 @@ if (mode === 'verify-fixes') {
   ) {
     throw new Error(`Fix verification incomplete: expected ${GROUPS.length} valid reviewer results`)
   }
+  const isValidResolution = (r) => r && typeof r.resolved === 'boolean' && typeof r.regressed === 'boolean' && typeof r.current_evidence === 'string'
   const resolutions = new Map()
   const regressionCandidates = []
   for (const result of groupResults) {
-    for (const entry of (result && result.rechecked) || []) resolutions.set(entry.index, entry.resolution)
+    for (const entry of (result && result.rechecked) || []) {
+      if (entry && typeof entry.index === 'number' && isValidResolution(entry.resolution)) resolutions.set(entry.index, entry.resolution)
+    }
     regressionCandidates.push(...((result && result.findings) || []))
+  }
+  // A prior finding with no (or malformed) recheck result is NOT the same as a
+  // verified-still-open finding -- silently defaulting resolution to null would mask
+  // a reviewer lane that dropped/skipped its assigned index. Fail closed instead.
+  const missingIndexes = priorFindings.map((_, index) => index).filter((index) => !resolutions.has(index))
+  if (missingIndexes.length) {
+    throw new Error(`Fix verification incomplete: missing recheck result(s) for prior finding index ${missingIndexes.join(', ')}`)
   }
   const rechecked = priorFindings.map((finding, index) => ({
     ...finding,
@@ -513,8 +537,15 @@ if (mode === 'verify-fixes') {
   const isResolved = (finding) => finding.resolution && finding.resolution.resolved && !finding.resolution.regressed
   const resolved = rechecked.filter(isResolved)
   const unresolved = rechecked.filter((finding) => !isResolved(finding))
+  const malformedRegressions = regressionCandidates.filter((finding) => !isValidVerdict(finding.verdict))
+  if (malformedRegressions.length) {
+    throw new Error(
+      `Fix verification incomplete: ${malformedRegressions.length} regression candidate(s) missing a valid verdict ` +
+        `(${malformedRegressions.map((f) => f.title || f.file).join(', ')})`
+    )
+  }
   const regressions = regressionCandidates
-    .filter((finding) => finding.verdict && finding.verdict.real && finding.verdict.in_scope)
+    .filter((finding) => finding.verdict.real && finding.verdict.in_scope)
     .map((finding) => ({ ...finding, severity: finding.verdict.severity }))
     .sort((left, right) => rank[left.severity] - rank[right.severity])
 
