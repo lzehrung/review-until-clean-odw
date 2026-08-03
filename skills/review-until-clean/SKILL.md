@@ -5,7 +5,7 @@ description: Run an agent/harness-agnostic pre-PR review loop with the Claude Co
 
 # Review Until Clean
 
-Use the review-and-correct dynamic workflow as the reviewer; use your normal harness tools for edits/tests. In Claude Code, invoke it with the native workflow tool; in other harnesses, run it with ODW. The engine and its `args` are identical either way.
+Use the review-and-correct workflow as the reviewer and normal harness tools for edits/tests. From an active Claude Code session, invoke the native `Workflow` tool. Other harnesses use ODW as the compatibility runner; if a local `claude` executable is available, prefer `--adapter claude` explicitly rather than relying on ODW's default adapter.
 
 ## Fast path for ODW
 
@@ -14,10 +14,12 @@ Use files, not inline JSON, for repeatable runs:
 ```bash
 mkdir -p .tmp
 printf '%s\n' '{"workspaceMode":"inplace"}' > .tmp/odw-inplace-config.json
-odw run review-and-correct --wait --config .tmp/odw-inplace-config.json --source <repo> --args @.tmp/review-args.json
+odw run review-and-correct --wait --adapter claude --config .tmp/odw-inplace-config.json --source <repo> --args @.tmp/review-args.json
 ```
 
-`review-args.json` needs `ticketKey`, explicit `base`, `head`, effective `ac`, and `"mode":"review"`. Codegraph is optional: if it's already installed and you already ran `codegraph review`/`codegraph impact` for this range (see the codegraph skill), pass its output as `codegraphContext` (and any dense/risky hunks you noticed as `riskHunks: [{file, line?, reason}]`) -- the workflow's Orient pass is skipped entirely when supplied, saving a redundant context-gathering agent call. If codegraph isn't installed, or you haven't run it, omit both fields; the workflow's own Orient pass checks for codegraph itself and falls back to `git diff` + grep/lsp when it's unavailable -- never install it on the caller's behalf just to satisfy this workflow. For verify rounds, reuse the same command with `verify-args.json` containing the same fields plus `"mode":"verify-fixes"`, `priorHead`, and the current round's blocking `priorFindings`.
+`review-args.json` needs `ticketKey`, explicit `base`, `head`, effective `ac`, and `"mode":"review"`. Codegraph is optional: if it is already installed and you already ran `codegraph review`/`codegraph impact`, pass its output as `codegraphContext` and dense/risky hunks as `riskHunks`. Otherwise omit both; the same two reviewers derive the context needed for their concern groups from the live diff. Review and verify-fixes modes each make exactly two reviewer-agent calls; candidates are adversarially verified inside their owning group session rather than by per-finding agents.
+
+Treat any failed reviewer lane as an incomplete review. The workflow fails closed rather than returning a clean result when either of its two reviewer results is missing or invalid.
 
 ## Invariants
 
@@ -31,12 +33,12 @@ odw run review-and-correct --wait --config .tmp/odw-inplace-config.json --source
 - If `git diff --name-only <base>...HEAD` is empty, stop: there are no branch changes to review. Do not review base-only commits from a branch that is behind base.
 - Start only from a known-good baseline: run the repo's build/lint/tests first. If unknown, inspect package/config docs; ask only if still ambiguous.
 - Critical/important findings block. Minor findings are reported, not loop-forcing.
-- For behavioral findings (thresholds, tolerances, timing, replication, concurrency), prefer re-running the concrete gate/test the finding names (`verify_command`, or the project's own test/build) over trusting reviewer reasoning; the workflow's verify/re-verify prompts already push reviewers to execute rather than speculate, but you MUST also re-run the repo's build/lint/tests after every fix round regardless of what a reviewer claims.
-- Codegraph (CLI/MCP) is an optional accelerant for the Orient pass, never a requirement: use it if it's already available, but do not install it, prompt the user to install it, or block/fail the review because it's missing.
+- For behavioral findings, prefer re-running the concrete gate/test named by the reviewer over trusting reasoning alone. The two group prompts require execution evidence when practical; after every fix round, the host MUST still run the repository build/lint/tests regardless of reviewer claims.
+- Codegraph is an optional caller-side accelerant, never a requirement. Use it if already available, but do not install it or block the review because it is missing.
 
 ## Review command
 
-The same `review-and-correct` engine runs in both harnesses with identical `args`. Pick the invocation for yours.
+The same `review-and-correct` engine and exactly-two-reviewer topology run in both harnesses. Native workflow invocation is available only when the active host is Claude Code; a `claude` binary on another harness does not expose the `Workflow` tool directly.
 
 ### Claude Code (native)
 
@@ -55,14 +57,14 @@ Workflow({
 })
 ```
 
-Reviewer agents run `git diff` in the real working tree, so no extra config is needed. `~/.claude/workflows/` is not scanned by the named-workflow registry, so always invoke by `scriptPath`, not by name.
+Reviewer agents run `git diff` in the real working tree, so no extra config is needed. `~/.claude/workflows/` is not scanned by the named-workflow registry, so invoke by `scriptPath`, not by name.
 
 ### ODW (other harnesses)
 
 Use a temp ODW config with `{"workspaceMode":"inplace"}` so reviewer agents can run `git diff` in the real repo.
 
 ```bash
-odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args '{
+odw run review-and-correct --wait --adapter claude --config <odw-inplace-config.json> --source <repo> --args '{
   "ticketKey": "ENG-1234",
   "base": "origin/develop",
   "head": "HEAD",
@@ -99,7 +101,7 @@ Write `verify-args.json` containing the same fields plus `priorFindings` set to 
 Then re-run the same engine in verify-fixes mode:
 
 - **Claude Code:** `Workflow({ scriptPath: "<install path>/review-and-correct.js", args: { ...same fields, mode: "verify-fixes", priorFindings, priorHead } })`
-- **ODW:** `odw run review-and-correct --wait --config <odw-inplace-config.json> --source <repo> --args @verify-args.json`
+- **ODW:** `odw run review-and-correct --wait --adapter claude --config <odw-inplace-config.json> --source <repo> --args @verify-args.json`
 
 11. New blockers are critical/important `unresolved[]` plus critical/important `regressions[]`.
 12. Keep a concise session-only round note: local commit SHA plus `addressed[]` from the verify result. One line per resolved legitimate finding; do not write or commit a report artifact for this.
