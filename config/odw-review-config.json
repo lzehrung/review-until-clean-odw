@@ -1,0 +1,14 @@
+{
+  "$comment": "ODW config for review-until-clean. Pass with `odw run review-and-correct --config ~/.odw/review-config.json`. Reviewer agents run `git diff` and read touched files themselves, so their adapter MUST have tools enabled -- ODW's built-in `omp` adapter ships `--no-tools`, which yields a hallucinated review rather than an error. An adapter entry replaces the built-in wholesale, so the whole command is restated here. Adapters not listed (codex, claude, cursor, kilo, opencode, gemini, qwen, kimi) are tool-capable as shipped.",
+
+  "timeout": 3600,
+
+  "adapters": {
+    "omp": {
+      "label": "Oh My Pi (tools enabled)",
+      "command": ["omp", "--print", "--no-session", "--approval-mode", "yolo", "--cwd", "{workspace}"],
+      "stdin": "{prompt}",
+      "flags": { "model": ["--model"] }
+    }
+  }
+}

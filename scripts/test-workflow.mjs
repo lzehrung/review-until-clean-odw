@@ -18,6 +18,11 @@ const runWorkflow = new AsyncFunction(
 const parallel = async (thunks) =>
   await Promise.all(thunks.map(async (thunk) => await thunk()));
 const noop = () => {};
+// A declared meta.phases title that no phase() call emits shows up in ODW's run
+// view as a lane that never starts, next to an undeclared lane that does.
+const declaredPhases = [...source.matchAll(/{\s*title:\s*'([^']+)'/g)].map((m) => m[1]);
+const emittedPhases = [];
+const recordPhase = (title) => emittedPhases.push(title);
 
 const reviewCalls = [];
 const reviewResult = await runWorkflow(
@@ -33,7 +38,7 @@ const reviewResult = await runWorkflow(
     return { findings: [] };
   },
   parallel,
-  noop,
+  recordPhase,
   noop,
 );
 assert.deepEqual(reviewCalls, ["review:behavior", "review:structure"]);
@@ -84,13 +89,64 @@ const verifyResult = await runWorkflow(
     };
   },
   parallel,
-  noop,
+  recordPhase,
   noop,
 );
 assert.deepEqual(verifyCalls, ["verify:behavior", "verify:structure"]);
 assert.equal(verifyResult.addressed.length, 2);
 assert.equal(verifyResult.unresolved.length, 0);
 assert.equal(verifyResult.regressions.length, 0);
+assert.deepEqual([...new Set(emittedPhases)].sort(), [...declaredPhases].sort());
+
+// A lane may only resolve the indexes it was assigned. Before ownership filtering,
+// a lane that echoed indexes belonging to the other lane overwrote its verdicts --
+// with every index present the fail-closed guard stayed quiet and a still-open
+// blocker was reported as resolved.
+const crossLanePrior = [
+  { severity: "important", dimension: "correctness", file: "src/a.js", title: "Still broken" },
+  { severity: "important", dimension: "tests", file: "src/a.test.js", title: "Fixed" },
+  { severity: "important", dimension: "docs", file: "README.md", title: "Docs fixed" },
+];
+const resolution = (resolved) => ({
+  current_evidence: resolved ? "fixed" : "the original defect is still present",
+  evidence_type: "code-reading",
+  resolved,
+  regressed: false,
+  reasoning: resolved ? "The defect is absent." : "The defect is unchanged.",
+});
+const crossLaneResult = await runWorkflow(
+  {
+    ticketKey: "TEST",
+    base: "origin/main",
+    head: "HEAD",
+    ac: "Test acceptance criteria",
+    mode: "verify-fixes",
+    priorHead: "before-fixes",
+    priorFindings: crossLanePrior,
+  },
+  async (_prompt, options) => ({
+    rechecked:
+      options.label === "verify:behavior"
+        ? [
+            { index: 0, resolution: resolution(false) },
+            { index: 1, resolution: resolution(true) },
+          ]
+        : // owns index 2 only; index 0 is a poached claim that must be ignored
+          [
+            { index: 2, resolution: resolution(true) },
+            { index: 0, resolution: resolution(true) },
+          ],
+    findings: [],
+  }),
+  parallel,
+  noop,
+  noop,
+);
+assert.deepEqual(
+  crossLaneResult.unresolved.map((finding) => finding.title),
+  ["Still broken"],
+);
+assert.deepEqual(crossLaneResult.addressed.length, 2);
 
 await assert.rejects(
   runWorkflow(

@@ -5,7 +5,7 @@ Portable pre-PR review loop skill and Claude Code-compatible dynamic workflow, r
 - `workflows/review-and-correct.js` is the executable Claude Code-compatible workflow: exactly two independent reviewers each review and adversarially verify one wide concern group, then return structured JSON and concise markdown.
 - `skills/review-until-clean/SKILL.md` is the host-agent operating procedure: safety gates, workflow invocation, fixes, tests, local commits, compact loop state, and final reporting.
 
-Use the native `Workflow` tool when the host session is Claude Code. A `claude` executable on another harness does not expose that tool to the host; use ODW as the compatibility runner and select the local Claude adapter explicitly.
+Use the native `Workflow` tool when the host session is Claude Code — it runs dynamic workflows natively and needs nothing else. Every other harness (Oh My Pi, Codex, Cursor, …) runs the same script through ODW; a `claude` executable on `PATH` does not expose the `Workflow` tool to a non-Claude host.
 
 ## At a glance
 
@@ -26,19 +26,13 @@ In `verify-fixes` mode, the same two groups each recheck their assigned prior fi
 
 The workflow is read-only. The host skill owns branch safety, edits, tests, local commits, loop state, and final reporting.
 
-## Key rule
+## Key rules
 
-This workflow reviews a git diff. Reviewer agents must see `.git`.
+**Reviewer agents need real tools.** They run `git diff` and read the touched files themselves. An adapter with tools disabled does not error — it hallucinates a review. ODW's built-in `omp` adapter ships `--no-tools`; override it (see [Run one review](#run-one-review)). `codex`, `claude`, `cursor`, `kilo`, `opencode`, `gemini`, `qwen`, and `kimi` are tool-capable as shipped.
 
-Create an ODW config:
+**Reviewer agents must see the live working tree.** ODW runs agents in place in `--source` by default, which is exactly right here. Never request `isolation: "worktree"` for this workflow: a worktree is a clean checkout of the base commit and hides uncommitted branch state. (`workspaceMode` is no longer an ODW config key; a config containing it is ignored with a warning.)
 
-```json
-{ "workspaceMode": "inplace" }
-```
-
-Use it for this git-diff workflow. ODW default copy mode may strip `.git` and produce unanchored findings.
-
-If this is empty, stop; there is nothing branch-local to review:
+**No diff, no review.** If this is empty, stop; there is nothing branch-local to review:
 
 ```bash
 git diff --name-only <base>...HEAD
@@ -103,6 +97,7 @@ The installer writes:
 - ODW workflow copy: `~/.odw/workflows/review-and-correct.js`
 - Claude Code workflow copy: `~/.claude/workflows/review-and-correct.js` (so Claude Code's workflow tool resolves it by `scriptPath`; skipped with `--no-harness`)
 - `~/.agents/skills/review-until-clean`
+- ODW review config: `~/.odw/review-config.json` (tool-capable `omp` adapter + a longer per-agent timeout; an existing file is never overwritten)
 - common harness skill copies: `~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`
 
 Options:
@@ -121,6 +116,7 @@ Manual fallback:
 mkdir -p ~/.odw/workflows ~/.agents/skills
 cp workflows/review-and-correct.js ~/.odw/workflows/review-and-correct.js
 cp -R skills/review-until-clean ~/.agents/skills/review-until-clean
+cp config/odw-review-config.json ~/.odw/review-config.json
 
 # Claude Code (workflow by scriptPath + skill)
 mkdir -p ~/.claude/workflows ~/.claude/skills
@@ -151,24 +147,37 @@ Workflow({
 
 `~/.claude/workflows/` is not scanned by the named-workflow registry, so invoke by `scriptPath`, not by name. This native path applies when the active host is Claude Code; merely having `claude` on PATH in another harness does not make its `Workflow` tool directly callable.
 
-### ODW (other harnesses)
+### ODW (every other harness)
 
-Prefer `--args @file.json` for multiline AC.
+ODW's built-in `omp` adapter runs `omp --print --no-tools`, so its reviewers cannot run `git diff`. `~/.odw/review-config.json` (written by the installer, source [`config/odw-review-config.json`](config/odw-review-config.json)) re-enables tools — an adapter entry replaces the built-in wholesale, so the whole `command` is restated:
+
+```json
+{
+  "timeout": 3600,
+  "adapters": {
+    "omp": {
+      "label": "Oh My Pi (tools enabled)",
+      "command": ["omp", "--print", "--no-session", "--approval-mode", "yolo", "--cwd", "{workspace}"],
+      "stdin": "{prompt}",
+      "flags": { "model": ["--model"] }
+    }
+  }
+}
+```
+
+Then run it. Use `--args @file.json` — multiline AC does not survive shell quoting, and ODW hard-fails args that look like JSON but do not parse:
 
 ```bash
-odw run review-and-correct \
-  --adapter claude \
-  --wait \
-  --config odw-inplace-config.json \
+odw run review-and-correct --wait \
+  --adapter omp \
+  --config ~/.odw/review-config.json \
   --source /path/to/repo \
-  --args '{
-    "ticketKey": "ENG-1234",
-    "base": "origin/develop",
-    "head": "HEAD",
-    "ac": "<acceptance criteria text>",
-    "mode": "review"
-  }'
+  --args @review-args.json
 ```
+
+`--wait` prints the result JSON on stdout and the run id on stderr, exiting `0` done / `1` failed / `124` timed out with the run still going. Without it, `odw run` detaches in a non-TTY and prints only the run id — read it back with `odw result <run_id>` and `odw logs <run_id>`.
+
+Other tool-capable adapters (`--adapter codex`, `cursor`, `kilo`, …) need no config at all.
 
 ## Run until clean
 
@@ -183,7 +192,7 @@ Loop policy:
 1. Feature branch only. Never push.
 2. Non-empty `<base>...HEAD` diff only.
 3. Baseline build/lint/tests green.
-4. Run the workflow review: use Claude Code's native `Workflow` tool from a Claude Code host, or ODW with `workspaceMode: "inplace"` and an explicit adapter from other harnesses.
+4. Run the workflow review: Claude Code's native `Workflow` tool from a Claude Code host, or `odw run` with an explicit tool-capable adapter from every other harness.
 5. Fix critical/important findings only; minors do not force another round.
 6. Run verification, commit locally once per round.
 7. Re-run with `mode: "verify-fixes"`, current round blockers as `priorFindings`, and pre-fix HEAD.

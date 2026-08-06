@@ -44,12 +44,16 @@ for (let i = 0; i < args.length; i++) {
 
 const workflowSrc = path.join(root, 'workflows', 'review-and-correct.js')
 const skillSrc = path.join(root, 'skills', 'review-until-clean')
+const odwConfigSrc = path.join(root, 'config', 'odw-review-config.json')
 
 const workflowDest = path.join(home, '.odw', 'workflows', 'review-and-correct.js')
 // Claude Code invokes the workflow by scriptPath; place a copy where its workflow
 // tool expects it so the documented `~/.claude/workflows/...` path resolves.
 const claudeWorkflowDest = path.join(home, '.claude', 'workflows', 'review-and-correct.js')
 const sharedSkillDest = path.join(home, '.agents', 'skills', 'review-until-clean')
+// Reviewer agents need tool-capable adapters; this config re-enables tools for the
+// `omp` built-in (which ships --no-tools) and raises the per-agent timeout.
+const odwConfigDest = path.join(home, '.odw', 'review-config.json')
 
 const defaultHarnessSkillDirs = [
   path.join(home, '.codex', 'skills'),
@@ -63,10 +67,12 @@ const harnessSkillDirs = installHarnesses
 
 await assertExists(workflowSrc)
 await assertExists(skillSrc)
+await assertExists(odwConfigSrc)
 
 await installWorkflow(workflowSrc, workflowDest)
 if (installHarnesses) await installWorkflow(workflowSrc, claudeWorkflowDest)
 await installSkill(skillSrc, sharedSkillDest)
+await installConfig(odwConfigSrc, odwConfigDest)
 for (const dir of harnessSkillDirs) {
   await installSkill(skillSrc, path.join(dir, 'review-until-clean'))
 }
@@ -75,6 +81,7 @@ log('Done.')
 log('ODW workflow: ' + workflowDest)
 if (installHarnesses) log('Claude Code workflow: ' + claudeWorkflowDest)
 log('Shared skill: ' + sharedSkillDest)
+log('ODW review config: ' + odwConfigDest)
 if (harnessSkillDirs.length) log('Harness skill dirs: ' + harnessSkillDirs.join(', '))
 
 async function installWorkflow(src, dest) {
@@ -98,6 +105,24 @@ async function copyFile(src, dest) {
   if (dryRun) return
   await fs.mkdir(path.dirname(dest), { recursive: true })
   await fs.copyFile(src, dest)
+}
+
+/** Never clobber a config the user may have tuned; report it instead. */
+async function installConfig(src, dest) {
+  if (await exists(dest)) {
+    log(`Keeping existing ${dest} (compare against ${src} if reviewers report missing tools)`)
+    return
+  }
+  await copyFile(src, dest)
+}
+
+async function exists(target) {
+  try {
+    await fs.access(target)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function installSkill(src, dest) {

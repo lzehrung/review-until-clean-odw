@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Run after implementation and build/lint/tests are green, before opening a PR. Pass {ticketKey, base, head, ac}; always pass base explicitly. After fixes, re-run with {...same, mode:"verify-fixes", priorFindings, priorHead} to confirm current blockers are resolved and the fix commits introduced nothing new.',
   phases: [
     { title: 'Review', detail: 'exactly two wide-scope reviewers; each reviews and adversarially verifies its own behavior or structure findings' },
-    { title: 'Verify fixes', detail: 'the same two groups recheck prior findings and review only priorHead...head for regressions' },
+    { title: 'Re-verify + Regression', detail: 'the same two groups recheck prior findings and review only priorHead...head for regressions' },
   ],
 }
 
@@ -517,9 +517,16 @@ if (mode === 'verify-fixes') {
   const isValidResolution = (r) => r && typeof r.resolved === 'boolean' && typeof r.regressed === 'boolean' && typeof r.current_evidence === 'string'
   const resolutions = new Map()
   const regressionCandidates = []
-  for (const result of groupResults) {
+  for (const [groupIndex, result] of groupResults.entries()) {
+    // Only accept indexes this lane was actually assigned. A lane that renumbers
+    // its own findings 0..k-1 (its prompt shows a short list) would otherwise
+    // overwrite the other lane's genuine result AND satisfy the missing-index
+    // guard below, silently turning a still-open blocker into "resolved".
+    const owned = new Set(groupInputs[groupIndex].prior.map(({ index }) => index))
     for (const entry of (result && result.rechecked) || []) {
-      if (entry && typeof entry.index === 'number' && isValidResolution(entry.resolution)) resolutions.set(entry.index, entry.resolution)
+      if (entry && typeof entry.index === 'number' && owned.has(entry.index) && isValidResolution(entry.resolution)) {
+        resolutions.set(entry.index, entry.resolution)
+      }
     }
     regressionCandidates.push(...((result && result.findings) || []))
   }
