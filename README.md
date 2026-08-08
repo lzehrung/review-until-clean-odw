@@ -149,23 +149,30 @@ Workflow({
 
 ### ODW (every other harness)
 
-ODW's built-in `omp` adapter runs `omp --print --no-tools`, so its reviewers cannot run `git diff`. `~/.odw/review-config.json` (written by the installer, source [`config/odw-review-config.json`](config/odw-review-config.json)) re-enables tools — an adapter entry replaces the built-in wholesale, so the whole `command` is restated:
+Any tool-capable adapter works with no config at all — `codex`, `cursor`, `claude`, `kilo`, `opencode`, `gemini`, `qwen`, and `kimi` are all fine as shipped. Use `--args @file.json`: multiline AC does not survive shell quoting, and ODW hard-fails args that look like JSON but do not parse.
+
+```bash
+odw run review-and-correct --wait \
+  --adapter codex \
+  --source /path/to/repo \
+  --args @review-args.json
+```
+
+`review-args.json`:
 
 ```json
 {
-  "timeout": 3600,
-  "adapters": {
-    "omp": {
-      "label": "Oh My Pi (tools enabled)",
-      "command": ["omp", "--print", "--no-session", "--approval-mode", "yolo", "--cwd", "{workspace}"],
-      "stdin": "{prompt}",
-      "flags": { "model": ["--model"] }
-    }
-  }
+  "ticketKey": "ENG-1234",
+  "base": "origin/develop",
+  "head": "HEAD",
+  "ac": "<acceptance criteria text>",
+  "mode": "review"
 }
 ```
 
-Then run it. Use `--args @file.json` — multiline AC does not survive shell quoting, and ODW hard-fails args that look like JSON but do not parse:
+`--wait` prints the result JSON on stdout and the run id on stderr, exiting `0` done / `1` failed / `124` timed out with the run still going. Without it, `odw run` detaches in a non-TTY and prints only the run id — read it back with `odw result <run_id>` and `odw logs <run_id>`.
+
+**Driving `omp` needs one extra flag.** Its built-in adapter runs `omp --print --no-tools`, so its reviewers cannot run `git diff`. The installer writes `~/.odw/review-config.json` (source [`config/odw-review-config.json`](config/odw-review-config.json)) to restore tools; pass it:
 
 ```bash
 odw run review-and-correct --wait \
@@ -174,10 +181,6 @@ odw run review-and-correct --wait \
   --source /path/to/repo \
   --args @review-args.json
 ```
-
-`--wait` prints the result JSON on stdout and the run id on stderr, exiting `0` done / `1` failed / `124` timed out with the run still going. Without it, `odw run` detaches in a non-TTY and prints only the run id — read it back with `odw result <run_id>` and `odw logs <run_id>`.
-
-Other tool-capable adapters (`--adapter codex`, `cursor`, `kilo`, …) need no config at all.
 
 ## Run until clean
 
