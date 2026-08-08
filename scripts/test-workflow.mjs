@@ -19,8 +19,12 @@ const parallel = async (thunks) =>
   await Promise.all(thunks.map(async (thunk) => await thunk()));
 const noop = () => {};
 // A declared meta.phases title that no phase() call emits shows up in ODW's run
-// view as a lane that never starts, next to an undeclared lane that does.
-const declaredPhases = [...source.matchAll(/{\s*title:\s*'([^']+)'/g)].map((m) => m[1]);
+// view as a lane that never starts, next to an undeclared lane that does. Scope the
+// scrape to the meta.phases array so an unrelated `title:` elsewhere cannot join it.
+const phasesBlock = /phases:\s*\[([\s\S]*?)^\s*\],/m.exec(source);
+assert.ok(phasesBlock, "could not locate meta.phases in the workflow source");
+const declaredPhases = [...phasesBlock[1].matchAll(/title:\s*'([^']+)'/g)].map((m) => m[1]);
+assert.ok(declaredPhases.length > 0, "meta.phases declared no titles");
 const emittedPhases = [];
 const recordPhase = (title) => emittedPhases.push(title);
 
